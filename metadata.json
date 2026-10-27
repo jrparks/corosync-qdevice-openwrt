@@ -1,0 +1,6 @@
+{
+  "name": "Corosync & QNetd for OpenWrt 23.05",
+  "description": "Cross-compilation build system, feed generator, and configuration toolkit for Corosync 3.2, QNetd, and Proxmox VE quorum on OpenWrt 23.05-SNAPSHOT.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
