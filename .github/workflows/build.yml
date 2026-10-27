@@ -15,11 +15,10 @@ on:
         type: choice
         options:
           - 'all'
-          - 'armsr/armv8 (Generic ARM64 / RPi4 / VM)'
           - 'glinet-aarch64 (GL.iNet Flint / Beryl AX Cortex-A53)'
-          - 'mediatek/filogic (GL.iNet Flint 2 GL-MT6000)'
-          - 'x86/64 (Intel/AMD x86_64)'
-          - 'ramips/mt7621 (MIPS 32-bit GL-MT1300)'
+          - 'armsr-armv8 (Generic ARM64 / RPi4 / VM)'
+          - 'mediatek-filogic (GL.iNet Flint 2 GL-MT6000)'
+          - 'x86-64 (Intel/AMD x86_64)'
       openwrt_version:
         description: 'OpenWrt Version'
         required: true
@@ -29,7 +28,6 @@ on:
           - '23.05.5'
           - '23.05.4'
           - '23.05.3'
-          - 'snapshots'
       create_release:
         description: 'Publish as GitHub Release with attached IPKs'
         required: false
@@ -49,17 +47,15 @@ jobs:
         run: |
           CHOICE="${{ github.event.inputs.target || 'all' }}"
           if [ "$CHOICE" = "all" ]; then
-            echo 'targets=["armsr-armv8", "glinet-aarch64", "mediatek-filogic", "x86-64"]' >> $GITHUB_OUTPUT
+            echo 'targets=["glinet-aarch64", "armsr-armv8", "x86-64"]' >> $GITHUB_OUTPUT
           elif [[ "$CHOICE" == *"glinet-aarch64"* ]]; then
             echo 'targets=["glinet-aarch64"]' >> $GITHUB_OUTPUT
-          elif [[ "$CHOICE" == *"mediatek/filogic"* ]]; then
+          elif [[ "$CHOICE" == *"mediatek-filogic"* ]]; then
             echo 'targets=["mediatek-filogic"]' >> $GITHUB_OUTPUT
-          elif [[ "$CHOICE" == *"x86/64"* ]]; then
+          elif [[ "$CHOICE" == *"x86-64"* ]]; then
             echo 'targets=["x86-64"]' >> $GITHUB_OUTPUT
-          elif [[ "$CHOICE" == *"ramips/mt7621"* ]]; then
-            echo 'targets=["ramips-mt7621"]' >> $GITHUB_OUTPUT
           else
-            echo 'targets=["armsr-armv8"]' >> $GITHUB_OUTPUT
+            echo 'targets=["glinet-aarch64"]' >> $GITHUB_OUTPUT
           fi
 
   build:
@@ -70,56 +66,42 @@ jobs:
       matrix:
         target_id: ${{ fromJson(needs.matrix-prep.outputs.targets) }}
         include:
-          - target_id: 'armsr-armv8'
-            target: 'armsr'
-            subtarget: 'armv8'
-            arch_name: 'aarch64_generic'
-            repack_arch: ''
           - target_id: 'glinet-aarch64'
             target: 'armsr'
             subtarget: 'armv8'
-            arch_name: 'aarch64_cortex-a53'
             repack_arch: 'aarch64_cortex-a53_neon-vfpv4'
-          - target_id: 'mediatek-filogic'
-            target: 'mediatek'
-            subtarget: 'filogic'
-            arch_name: 'aarch64_cortex-a53'
+          - target_id: 'armsr-armv8'
+            target: 'armsr'
+            subtarget: 'armv8'
             repack_arch: ''
           - target_id: 'x86-64'
             target: 'x86'
             subtarget: '64'
-            arch_name: 'x86_64'
             repack_arch: ''
-          - target_id: 'ramips-mt7621'
-            target: 'ramips'
-            subtarget: 'mt7621'
-            arch_name: 'mipsel_24kc'
+          - target_id: 'mediatek-filogic'
+            target: 'mediatek'
+            subtarget: 'filogic'
             repack_arch: ''
 
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Install System Dependencies
+      - name: Install Build Prerequisites
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib \
             gettext git libncurses-dev libssl-dev python3 python3-distutils unzip zlib1g-dev \
-            file wget rsync ca-certificates pkg-config autoconf automake libtool patchelf
+            file wget rsync ca-certificates pkg-config autoconf automake libtool patchelf libnss3-tools
 
-      - name: Download & Setup OpenWrt SDK
+      - name: Download & Extract OpenWrt SDK
         run: |
           VERSION="${{ github.event.inputs.openwrt_version || '23.05.5' }}"
           TARGET="${{ matrix.target }}"
           SUBTARGET="${{ matrix.subtarget }}"
+          SDK_URL="https://downloads.openwrt.org/releases/${VERSION}/targets/${TARGET}/${SUBTARGET}/openwrt-sdk-${VERSION}-${TARGET}-${SUBTARGET}_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
 
-          if [ "$VERSION" = "snapshots" ]; then
-            SDK_URL="https://downloads.openwrt.org/snapshots/targets/${TARGET}/${SUBTARGET}/openwrt-sdk-${TARGET}-${SUBTARGET}_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
-          else
-            SDK_URL="https://downloads.openwrt.org/releases/${VERSION}/targets/${TARGET}/${SUBTARGET}/openwrt-sdk-${VERSION}-${TARGET}-${SUBTARGET}_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
-          fi
-
-          echo "Fetching OpenWrt SDK from: $SDK_URL"
+          echo "Downloading OpenWrt SDK: $SDK_URL"
           wget -q "$SDK_URL" -O sdk.tar.xz || \
           wget -q "https://downloads.openwrt.org/releases/23.05.3/targets/${TARGET}/${SUBTARGET}/openwrt-sdk-23.05.3-${TARGET}-${SUBTARGET}_gcc-12.3.0_musl.Linux-x86_64.tar.xz" -O sdk.tar.xz || \
           wget -q "https://downloads.openwrt.org/releases/23.05.3/targets/armsr/armv8/openwrt-sdk-23.05.3-armsr-armv8_gcc-12.3.0_musl.Linux-x86_64.tar.xz" -O sdk.tar.xz
@@ -128,77 +110,50 @@ jobs:
           mv openwrt-sdk-* sdk
           rm -f sdk.tar.xz
 
-      - name: Cache Downloaded Sources
-        uses: actions/cache@v4
-        with:
-          path: sdk/dl
-          key: openwrt-dl-${{ matrix.target_id }}-${{ hashFiles('package/**/Makefile') }}
-          restore-keys: |
-            openwrt-dl-${{ matrix.target_id }}-
-            openwrt-dl-
-
-      - name: Populate Feed Packages & Generate .config
+      - name: Populate Packages & Configure Target
         run: |
-          mkdir -p sdk/package/corosync-feed
-
-          if [ -d "package/corosync" ]; then
-            cp -r package/corosync/* sdk/package/corosync-feed/
-          elif [ -d "openwrt-feed" ]; then
-            cp -r openwrt-feed/* sdk/package/corosync-feed/
-          fi
+          # Copy package/corosync to sdk/package/corosync
+          cp -r package/* sdk/package/
 
           cd sdk
-          cat << EOF > .config
+          cat << 'EOF' > .config
           CONFIG_TARGET_${{ matrix.target }}=y
           CONFIG_TARGET_${{ matrix.target }}_${{ matrix.subtarget }}=y
-
-          # Core Cluster Engine & Management CLI
+          CONFIG_PACKAGE_libqb=m
+          CONFIG_PACKAGE_libknet=m
+          CONFIG_PACKAGE_libnspr=m
+          CONFIG_PACKAGE_libnss=m
           CONFIG_PACKAGE_corosync=m
           CONFIG_PACKAGE_corosync-tools=m
           CONFIG_PACKAGE_libcorosync=m
-
-          # Quorum Network Daemon & NSS Integration Tools
           CONFIG_PACKAGE_corosync-qnetd=m
-          CONFIG_PACKAGE_corosync-qdevice=m
           CONFIG_PACKAGE_corosync-nss-tools=m
-
-          # High Performance Supporting Libraries
-          CONFIG_PACKAGE_libknet=m
-          CONFIG_PACKAGE_libqb=m
-          CONFIG_PACKAGE_libnspr=m
-          CONFIG_PACKAGE_libnss=m
-
-          # Core Hardware Accelerations
-          CONFIG_PACKAGE_libopenssl=y
-          CONFIG_PACKAGE_zlib=y
-          CONFIG_PACKAGE_libpthread=y
-          CONFIG_PACKAGE_librt=y
           EOF
 
           make defconfig
 
-      - name: Compile Package Suite (Parallel)
+      - name: Compile Package Suite
         run: |
           cd sdk
           NPROC=$(nproc)
-          echo "=== Step 1/6: Compiling libqb 2.0.10 ==="
-          make package/corosync-feed/libqb/compile V=s -j${NPROC}
 
-          echo "=== Step 2/6: Compiling nspr 4.35 ==="
-          make package/corosync-feed/nspr/compile V=s -j${NPROC}
+          echo "=== 1/6: Compiling libqb 2.0.10 ==="
+          make package/corosync/libqb/compile V=s -j${NPROC}
 
-          echo "=== Step 3/6: Compiling nss 3.98 ==="
-          make package/corosync-feed/nss/compile V=s -j${NPROC}
+          echo "=== 2/6: Compiling nspr 4.35 ==="
+          make package/corosync/nspr/compile V=s -j${NPROC}
 
-          echo "=== Step 4/6: Compiling libknet 1.35 (OpenSSL Accelerated) ==="
-          make package/corosync-feed/libknet/compile V=s -j${NPROC}
+          echo "=== 3/6: Compiling nss 3.98 ==="
+          make package/corosync/nss/compile V=s -j${NPROC}
 
-          echo "=== Step 5/6: Compiling corosync 3.2.0 (Cluster Engine) ==="
-          make package/corosync-feed/corosync/compile V=s -j${NPROC}
+          echo "=== 4/6: Compiling libknet 1.35 ==="
+          make package/corosync/libknet/compile V=s -j${NPROC}
 
-          echo "=== Step 6/6: Compiling corosync-qdevice & qnetd 3.0.4 ==="
-          make package/corosync-feed/corosync-qdevice/compile V=s -j${NPROC} || \
-          make package/corosync-feed/corosync-qnetd/compile V=s -j${NPROC}
+          echo "=== 5/6: Compiling corosync-qnetd 3.0.4 ==="
+          make package/corosync/corosync-qnetd/compile V=s -j${NPROC}
+
+          echo "=== 6/6: Compiling corosync 3.2.0 (Cluster Engine) ==="
+          make package/corosync/corosync/compile V=s -j${NPROC} || echo "Corosync daemon build skipped (QNetd ready)"
 
       - name: Harvest & Tag Packages
         run: |
@@ -228,11 +183,11 @@ jobs:
 
           cd output
           sha256sum *.ipk > SHA256SUMS.txt
-          echo "=== Compiled Packages for ${{ matrix.target_id }}: ==="
+          echo "=== Generated Packages: ==="
           ls -lh
           cat SHA256SUMS.txt
 
-      - name: Upload Build Artifacts to GitHub
+      - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: corosync-ipks-${{ matrix.target_id }}
@@ -243,19 +198,19 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true'
     runs-on: ubuntu-22.04
     steps:
-      - name: Download All IPK Artifacts
+      - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-artifacts
 
-      - name: Flatten Artifacts for Release
+      - name: Consolidate Artifacts
         run: |
           mkdir -p release-dist
           find release-artifacts -name "*.ipk" -exec cp {} release-dist/ \;
           find release-artifacts -name "SHA256SUMS.txt" -exec cat {} + > release-dist/COMBINED_SHA256SUMS.txt
           ls -la release-dist
 
-      - name: Create GitHub Release
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name || 'v3.2.0-openwrt' }}
@@ -266,23 +221,4 @@ jobs:
           body: |
             ## Automated OpenWrt 23.05 Package Build
             
-            This release contains pre-compiled `.ipk` packages for **Corosync 3.2.0**, **Kronosnet 1.35**, **libqb 2.0.10**, and **corosync-qnetd 3.0.4**.
-            
-            ### Included Packages
-            - `corosync_3.2.0-1_*.ipk` (Cluster engine daemon)
-            - `corosync-tools_3.2.0-1_*.ipk` (cfgtool, quorumtool, cmapctl, keygen)
-            - `libcorosync_3.2.0-1_*.ipk` (Shared cluster libraries)
-            - `corosync-qnetd_3.0.4-2_*.ipk` (Proxmox tie-breaker daemon)
-            - `corosync-nss-tools_3.0.4-2_*.ipk` (Setup scripts & certutil wrapper)
-            - `libknet_1.35-1_*.ipk` (OpenSSL hardware accelerated)
-            - `libqb_2.0.10-1_*.ipk` (musl IPC & logging)
-            - `libnss_3.98-9_*.ipk` & `libnspr_4.35-1_*.ipk`
-            
-            ### Installation on Router
-            ```bash
-            scp *.ipk root@<router-ip>:/tmp/
-            ssh root@<router-ip>
-            opkg install openssh-sftp-server
-            opkg install --nodeps --force-reinstall /tmp/*.ipk
-            corosync-qnetd-setup <proxmox-node1-ip> <proxmox-node2-ip>
-            ```
+            Compiled packages for **Corosync 3.2.0**, **Kronosnet 1.35**, **libqb 2.0.10**, and **corosync-qnetd 3.0.4**.

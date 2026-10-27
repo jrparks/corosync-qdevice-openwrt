@@ -20,11 +20,12 @@ include $(INCLUDE_DIR)/package.mk
 TARGET_CFLAGS := $(filter-out -D_FORTIFY_SOURCE=%,$(TARGET_CFLAGS))
 
 CONFIGURE_VARS += \
-	PKG_CONFIG_PATH="$(STAGING_DIR)/usr/lib/pkgconfig"
+	PKG_CONFIG_PATH="$(STAGING_DIR)/usr/lib/pkgconfig" \
+	nss_CFLAGS="-I$(STAGING_DIR)/usr/include/nss -I$(STAGING_DIR)/usr/include/nspr" \
+	nss_LIBS="-L$(STAGING_DIR)/usr/lib -lnss3 -lssl3 -lsmime3 -lnssutil3"
 
 CONFIGURE_ARGS += \
-	--enable-crypto-openssl \
-	--disable-crypto-nss \
+	--disable-crypto-openssl \
 	--disable-compress-zlib \
 	--disable-compress-lz4 \
 	--disable-compress-lzo2 \
@@ -39,27 +40,19 @@ define Package/libknet
   SECTION:=libs
   CATEGORY:=Libraries
   TITLE:=Kronosnet (knet) network transport library
-  DEPENDS:=+libpthread +librt +libopenssl
-endef
-
-define Package/libknet/description
-  Kronosnet (knet) is a network abstraction layer designed for High Availability
-  clustering with automatic multi-link failover, dynamic MTU negotiation,
-  and cryptographic authentication and encryption.
+  DEPENDS:=+libqb +libnss
 endef
 
 define Build/InstallDev
-	$(INSTALL_DIR) $(1)/usr/include
-	$(CP) $(PKG_INSTALL_DIR)/usr/include/libknet.h $(1)/usr/include/
-	$(INSTALL_DIR) $(1)/usr/lib
-	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libknet.* $(1)/usr/lib/
-	$(INSTALL_DIR) $(1)/usr/lib/pkgconfig
-	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/libknet.pc $(1)/usr/lib/pkgconfig/
+	$(INSTALL_DIR) $(1)/usr/include $(1)/usr/lib/pkgconfig
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/include/libknet.h $(1)/usr/include/
+	cp -a $(PKG_INSTALL_DIR)/usr/lib/libknet.so* $(1)/usr/lib/
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/libknet.pc $(1)/usr/lib/pkgconfig/
 endef
 
 define Package/libknet/install
 	$(INSTALL_DIR) $(1)/usr/lib
-	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libknet.so* $(1)/usr/lib/
+	cp -a $(PKG_INSTALL_DIR)/usr/lib/libknet.so* $(1)/usr/lib/
 	rm -f $(1)/usr/lib/*.a $(1)/usr/lib/*.la
 endef
 

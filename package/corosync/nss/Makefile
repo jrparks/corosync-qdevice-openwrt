@@ -16,7 +16,7 @@ define Package/libnss
   SECTION:=libs
   CATEGORY:=Libraries
   TITLE:=Mozilla Network Security Services (NSS)
-  DEPENDS:=+libnspr +zlib
+  DEPENDS:=+libnspr
 endef
 
 define Package/libnss/description
@@ -24,25 +24,38 @@ define Package/libnss/description
   cross-platform development of security-enabled client and server applications.
 endef
 
+ifeq ($(ARCH),aarch64)
+  NSS_CPU_ARCH:=aarch64
+  NSS_USE_64:=1
+endif
+ifeq ($(ARCH),x86_64)
+  NSS_CPU_ARCH:=x86_64
+  NSS_USE_64:=1
+endif
+ifeq ($(NSS_CPU_ARCH),)
+  NSS_CPU_ARCH:=$(ARCH)
+  NSS_USE_64:=1
+endif
+
 define Build/Configure
 endef
 
 define Build/Compile
 	# Host tool
-	$(MAKE) -j$(nproc) -C $(PKG_BUILD_DIR)/nss/coreconf/nsinstall \
+	$(MAKE) $(PKG_JOBS) -C $(PKG_BUILD_DIR)/nss/coreconf/nsinstall \
 		CC="$(HOSTCC)" \
 		OBJDIR_NAME=host \
 		BUILD_OPT=1 \
 		USE_64=1
 
-	# Target build — bundled sqlite3.c is used to keep standalone footprint
-	$(MAKE) -j$(nproc) -C $(PKG_BUILD_DIR)/nss \
+	# Target build — bundled sqlite3.c and internal zlib are used to keep standalone footprint
+	$(MAKE) $(PKG_JOBS) -C $(PKG_BUILD_DIR)/nss \
 		BUILD_OPT=1 \
-		USE_64=1 \
+		USE_64=$(NSS_USE_64) \
 		CROSS_COMPILE=1 \
 		OS_TARGET=Linux \
-		OS_ARCH=aarch64 \
-		CPU_ARCH=aarch64 \
+		OS_ARCH=Linux \
+		CPU_ARCH=$(NSS_CPU_ARCH) \
 		OBJDIR_NAME=target.OBJ \
 		FREEBL_LOWHASH=1 \
 		NSINSTALL="$(PKG_BUILD_DIR)/nss/coreconf/nsinstall/host/nsinstall" \
@@ -52,7 +65,6 @@ define Build/Compile
 		RC= \
 		NSS_DISABLE_DBM=1 \
 		NSS_DISABLE_LIBPKIX=1 \
-		USE_64=1 \
 		USE_SYSTEM_NSPR=1 \
 		NSPR_INCLUDE_DIR="$(STAGING_DIR)/usr/include/nspr" \
 		NSPR_LIB_DIR="$(STAGING_DIR)/usr/lib" \
@@ -68,7 +80,7 @@ define Build/Compile
 
 	# musl dynamic linker patch for softokn3 -> freebl3
 	find $(PKG_BUILD_DIR)/dist -name libsoftokn3.so -exec \
-		$(STAGING_DIR_HOST)/bin/patchelf --add-needed libfreebl3.so {} \; 2>/dev/null || true
+		patchelf --add-needed libfreebl3.so {} 2>/dev/null \; || true
 endef
 
 define Build/InstallDev
