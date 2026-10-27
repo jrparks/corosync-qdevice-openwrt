@@ -46,15 +46,14 @@ export const BetterWayTab: React.FC<BetterWayTabProps> = ({
           </div>
 
           <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-            How This Upgrades & Outperforms <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-300">jrparks/corosync-qnetd-openwrt</span>
+            Architectural Modernization: <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-300">Corosync 3 & QNetd for OpenWrt</span>
           </h2>
 
           <p className="mt-3 text-sm sm:text-base text-slate-300 max-w-4xl leading-relaxed">
-            Your previous repository was a clever breakthrough for running <code>corosync-qnetd</code> on GL.iNet routers.
-            However, it had several critical constraints: it only built the quorum network daemon (not Corosync itself),
-            forced sluggish NSS crypto onto <code>libknet</code>, relied on an ad-hoc <code>sed</code> IPK repacking loop,
-            and was vulnerable to known memory corruption CVEs in older Corosync/libknet releases.
-            Here is the modernized, production-standard architecture designed specifically for <strong>OpenWrt 23.05-SNAPSHOT</strong>.
+            Running high-availability cluster components on resource-constrained embedded routers requires a tailored architecture.
+            Unlike earlier ad-hoc builds that only compiled a bare quorum daemon, forced sluggish NSS crypto onto <code>libknet</code>,
+            or relied on manual repack loops, this modernized feed delivers the complete <strong>Corosync 3.2.0</strong> and <strong>QNetd 3.0.4</strong> suite
+            engineered specifically for <strong>OpenWrt 23.05</strong> and modern <strong>Proxmox VE (7 / 8 / 9)</strong>.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6 pt-6 border-t border-slate-800/80">
