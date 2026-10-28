@@ -38,6 +38,11 @@ on:
         required: false
         default: 'v3.0.4'
         type: string
+      release_run_id:
+        description: 'Existing run ID to publish from (skips the build jobs)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -69,6 +74,7 @@ jobs:
 
   build:
     needs: matrix-prep
+    if: github.event.inputs.release_run_id == '' || github.event.inputs.release_run_id == null
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -178,13 +184,28 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true'
+    if: |
+      !cancelled() && (
+        startsWith(github.ref, 'refs/tags/') ||
+        (github.event.inputs.create_release == 'true' && needs.build.result == 'success') ||
+        (github.event.inputs.release_run_id != '' && github.event.inputs.release_run_id != null)
+      )
     runs-on: ubuntu-22.04
     steps:
-      - name: Download Artifacts
+      - name: Download Artifacts From This Run
+        if: github.event.inputs.release_run_id == '' || github.event.inputs.release_run_id == null
         uses: actions/download-artifact@v4
         with:
           path: release-artifacts
+
+      - name: Download Artifacts From Existing Run
+        if: github.event.inputs.release_run_id != '' && github.event.inputs.release_run_id != null
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ github.event.inputs.release_run_id }}
+        run: |
+          mkdir -p release-artifacts
+          gh run download "$RELEASE_RUN_ID" --repo "$GITHUB_REPOSITORY" --dir release-artifacts
 
       - name: Consolidate Artifacts
         run: |
