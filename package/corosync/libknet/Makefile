@@ -28,6 +28,8 @@ CONFIGURE_VARS += \
 # non-empty action-if-given that forces enable_libknet_sctp=yes for both
 # --enable and --disable, so SCTP gets enabled and configure fails with
 # 'missing required SCTP headers'. Leaving the flag out keeps SCTP disabled.
+# The wireshark dissector defaults to on and needs wireshark >= 4.6.0, so it
+# is explicitly disabled.
 CONFIGURE_ARGS += \
 	--disable-crypto-openssl \
 	--disable-compress-zlib \
@@ -37,6 +39,7 @@ CONFIGURE_ARGS += \
 	--disable-compress-bzip2 \
 	--disable-compress-lzma \
 	--disable-libnozzle \
+	--disable-wireshark-dissector \
 	--disable-man
 
 define Package/libknet
