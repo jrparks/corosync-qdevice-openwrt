@@ -151,18 +151,17 @@ jobs:
             echo "Repacking architecture string to: $REPACK"
             for ipk in output/*.ipk; do
               [ -f "$ipk" ] || continue
+              # Absolute path: the loop body chdirs into $tmpdir before reading $ipk
+              ipk_abs=$(readlink -f "$ipk")
               tmpdir=$(mktemp -d)
-              (
-                cd "$tmpdir"
-                tar xzf "$ipk"
-                mkdir ctrl
-                tar xzf control.tar.gz -C ctrl
-                sed -i "s/^Architecture: .*/Architecture: ${REPACK}/" ctrl/control
-                (cd ctrl && tar czf ../control.tar.gz .)
-                rm -rf ctrl
-                rm "$ipk"
-                tar czf "$ipk" debian-binary control.tar.gz data.tar.gz
-              )
+              tar xzf "$ipk_abs" -C "$tmpdir"
+              mkdir "$tmpdir/ctrl"
+              tar xzf "$tmpdir/control.tar.gz" -C "$tmpdir/ctrl"
+              sed -i "s/^Architecture: .*/Architecture: ${REPACK}/" "$tmpdir/ctrl/control"
+              (cd "$tmpdir/ctrl" && tar czf ../control.tar.gz .)
+              rm -rf "$tmpdir/ctrl"
+              rm "$ipk_abs"
+              (cd "$tmpdir" && tar czf "$ipk_abs" ./debian-binary ./control.tar.gz ./data.tar.gz)
               rm -rf "$tmpdir"
             done
           fi
