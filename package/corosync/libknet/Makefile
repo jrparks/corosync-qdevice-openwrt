@@ -24,6 +24,10 @@ CONFIGURE_VARS += \
 	nss_CFLAGS="-I$(STAGING_DIR)/usr/include/nss -I$(STAGING_DIR)/usr/include/nspr" \
 	nss_LIBS="-L$(STAGING_DIR)/usr/lib -lnss3 -lssl3 -lsmime3 -lnssutil3"
 
+# Do not pass --disable-libknet-sctp: kronosnet 1.35 declares the option with a
+# non-empty action-if-given that forces enable_libknet_sctp=yes for both
+# --enable and --disable, so SCTP gets enabled and configure fails with
+# 'missing required SCTP headers'. Leaving the flag out keeps SCTP disabled.
 CONFIGURE_ARGS += \
 	--disable-crypto-openssl \
 	--disable-compress-zlib \
@@ -32,7 +36,6 @@ CONFIGURE_ARGS += \
 	--disable-compress-zstd \
 	--disable-compress-bzip2 \
 	--disable-compress-lzma \
-	--disable-libknet-sctp \
 	--disable-libnozzle \
 	--disable-man
 

@@ -13,6 +13,15 @@ PKG_INSTALL:=1
 
 include $(INCLUDE_DIR)/package.mk
 
+# NSPR selects its platform assembly from USE_64 at configure time. Without
+# --enable-64bit on an LP64 target, x86_64 falls back to the 32-bit
+# os_Linux_x86.s atomics while the headers declare _PR_x86_64_* symbols,
+# leaving libnspr4.so with undefined atomics.
+LBITS = $(shell $(TARGET_CC) -dM -E - </dev/null | grep -q "__LP64__" && echo 64 || echo 32)
+ifeq ($(LBITS),64)
+  CONFIGURE_ARGS += --enable-64bit
+endif
+
 define Package/libnspr
   SECTION:=libs
   CATEGORY:=Libraries
