@@ -74,12 +74,14 @@ This repository includes a multi-architecture **GitHub Actions Matrix Workflow**
 4. *(Optional)* Check **"Publish as GitHub Release with attached IPKs"** to generate a tagged GitHub Release with attached IPK files and `SHA256SUMS.txt`.
 
 ### Method C: Automated Release via Version Tagging
-Tagging any release tag will trigger a full release build:
+Tagging a release triggers a full build and publishes a GitHub Release. Tags follow the upstream corosync convention, `vX.Y.Z`, where `X.Y.Z` is the corosync-qdevice version being packaged:
 ```bash
-git tag v3.0.4-1
-git push origin v3.0.4-1
+git tag v3.0.4
+git push origin v3.0.4
 ```
-The compiled `.ipk` files and checksums will be automatically published on your GitHub **Releases** page.
+The release is named after the tag and contains every target's IPKs grouped by target directory (`armsr-armv8`, `glinet-aarch64`, `mediatek-filogic`, `x86-64`), plus `COMBINED_SHA256SUMS.txt`.
+
+Release assets are unique per architecture: the GL.iNet repack rewrites both the package architecture and the filename to `aarch64_cortex-a53_neon-vfpv4`, so it cannot collide with the `armsr-armv8` packages. When using manual dispatch, set the **Release tag** input to the same `vX.Y.Z` form.
 
 ---
 

@@ -33,6 +33,11 @@ on:
         required: false
         default: false
         type: boolean
+      release_tag:
+        description: 'Release tag, corosync style (e.g. v3.0.4)'
+        required: false
+        default: 'v3.0.4'
+        type: string
 
 permissions:
   contents: write
@@ -157,12 +162,18 @@ jobs:
               tar xzf "$ipk_abs" -C "$tmpdir"
               mkdir "$tmpdir/ctrl"
               tar xzf "$tmpdir/control.tar.gz" -C "$tmpdir/ctrl"
+              old_arch=$(sed -n 's/^Architecture: //p' "$tmpdir/ctrl/control")
               sed -i "s/^Architecture: .*/Architecture: ${REPACK}/" "$tmpdir/ctrl/control"
               (cd "$tmpdir/ctrl" && tar czf ../control.tar.gz .)
               rm -rf "$tmpdir/ctrl"
               rm "$ipk_abs"
               (cd "$tmpdir" && tar czf "$ipk_abs" ./debian-binary ./control.tar.gz ./data.tar.gz)
               rm -rf "$tmpdir"
+              # Rename to the repacked arch so assets stay unique across targets
+              if [ -n "$old_arch" ] && [ "$old_arch" != "$REPACK" ]; then
+                new_ipk="${ipk_abs%_${old_arch}.ipk}_${REPACK}.ipk"
+                mv "$ipk_abs" "$new_ipk"
+              fi
             done
           fi
 
@@ -191,19 +202,41 @@ jobs:
       - name: Consolidate Artifacts
         run: |
           mkdir -p release-dist
-          find release-artifacts -name "*.ipk" -exec cp {} release-dist/ \;
-          find release-artifacts -name "SHA256SUMS.txt" -exec cat {} + > release-dist/COMBINED_SHA256SUMS.txt
-          ls -la release-dist
+          for dir in release-artifacts/corosync-ipks-*; do
+            [ -d "$dir" ] || continue
+            target="${dir##*/corosync-ipks-}"
+            mkdir -p "release-dist/$target"
+            cp "$dir"/*.ipk "release-dist/$target"/
+          done
+          ( cd release-dist && find . -name '*.ipk' | sort | xargs -r sha256sum > COMBINED_SHA256SUMS.txt )
+          find release-dist -type f | sort
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name || 'v3.0.4-openwrt' }}
-          name: QNetd 3.0.4 for OpenWrt 23.05 (${{ github.ref_name || 'latest' }})
+          tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
+          name: ${{ github.event.inputs.release_tag || github.ref_name }}
           draft: false
           prerelease: false
-          files: release-dist/*
+          files: |
+            release-dist/**/*.ipk
+            release-dist/COMBINED_SHA256SUMS.txt
           body: |
-            ## Automated OpenWrt 23.05 Package Build
-            
-            Compiled packages for **Corosync QNetd 3.0.4** with NSS 3.98 and NSPR 4.35.
+            Corosync QNetd 3.0.4 for OpenWrt 23.05, built with NSS 3.98 and NSPR 4.35.
+
+            Assets are grouped per target architecture:
+
+            - `armsr-armv8` - `aarch64_generic` (generic ARM64, Raspberry Pi 4, VMs)
+            - `glinet-aarch64` - `aarch64_cortex-a53_neon-vfpv4` (GL.iNet Flint / Beryl AX)
+            - `mediatek-filogic` - `aarch64_cortex-a53` (GL.iNet Flint 2 / GL-MT6000)
+            - `x86-64` - `x86_64`
+
+            Each target ships `libnspr`, `libnss`, `corosync-qnetd` and `corosync-nss-tools`.
+
+            Install on the router:
+
+            ```
+            opkg install --nodeps --force-reinstall libnspr_*.ipk libnss_*.ipk corosync-qnetd_*.ipk corosync-nss-tools_*.ipk
+            corosync-qnetd-setup
+            /usr/sbin/corosync-qnetd-tool -s
+            ```
