@@ -1,4 +1,4 @@
-name: Build OpenWrt Corosync & QNetd
+name: Build OpenWrt QNetd
 
 on:
   push:
@@ -119,13 +119,8 @@ jobs:
           cat << 'EOF' > .config
           CONFIG_TARGET_${{ matrix.target }}=y
           CONFIG_TARGET_${{ matrix.target }}_${{ matrix.subtarget }}=y
-          CONFIG_PACKAGE_libqb=m
-          CONFIG_PACKAGE_libknet=m
           CONFIG_PACKAGE_libnspr=m
           CONFIG_PACKAGE_libnss=m
-          CONFIG_PACKAGE_corosync=m
-          CONFIG_PACKAGE_corosync-tools=m
-          CONFIG_PACKAGE_libcorosync=m
           CONFIG_PACKAGE_corosync-qnetd=m
           CONFIG_PACKAGE_corosync-nss-tools=m
           EOF
@@ -137,23 +132,14 @@ jobs:
           cd sdk
           NPROC=$(nproc)
 
-          echo "=== 1/6: Compiling libqb 2.0.10 ==="
-          make package/corosync/libqb/compile V=s -j${NPROC}
-
-          echo "=== 2/6: Compiling nspr 4.35 ==="
+          echo "=== 1/3: Compiling nspr 4.35 ==="
           make package/corosync/nspr/compile V=s -j${NPROC}
 
-          echo "=== 3/6: Compiling nss 3.98 ==="
+          echo "=== 2/3: Compiling nss 3.98 ==="
           make package/corosync/nss/compile V=s -j${NPROC}
 
-          echo "=== 4/6: Compiling libknet 1.35 ==="
-          make package/corosync/libknet/compile V=s -j${NPROC}
-
-          echo "=== 5/6: Compiling corosync-qnetd 3.0.4 ==="
+          echo "=== 3/3: Compiling corosync-qnetd 3.0.4 ==="
           make package/corosync/corosync-qnetd/compile V=s -j${NPROC}
-
-          echo "=== 6/6: Compiling corosync 3.2.0 (Cluster Engine) ==="
-          make package/corosync/corosync/compile V=s -j${NPROC} || echo "Corosync daemon build skipped (QNetd ready)"
 
       - name: Harvest & Tag Packages
         run: |
@@ -213,12 +199,12 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name || 'v3.2.0-openwrt' }}
-          name: Corosync 3.2.0 & QNetd for OpenWrt 23.05 (${{ github.ref_name || 'latest' }})
+          tag_name: ${{ github.ref_name || 'v3.0.4-openwrt' }}
+          name: QNetd 3.0.4 for OpenWrt 23.05 (${{ github.ref_name || 'latest' }})
           draft: false
           prerelease: false
           files: release-dist/*
           body: |
             ## Automated OpenWrt 23.05 Package Build
             
-            Compiled packages for **Corosync 3.2.0**, **Kronosnet 1.35**, **libqb 2.0.10**, and **corosync-qnetd 3.0.4**.
+            Compiled packages for **Corosync QNetd 3.0.4** with NSS 3.98 and NSPR 4.35.

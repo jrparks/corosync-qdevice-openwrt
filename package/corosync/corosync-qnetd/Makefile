@@ -45,7 +45,7 @@ define Package/corosync-nss-tools
   SECTION:=net
   CATEGORY:=Network
   TITLE:=Corosync NSS tools
-  DEPENDS:=+libnss
+  DEPENDS:=+libnss +openssl-util
 endef
 
 define Package/corosync-qnetd/install

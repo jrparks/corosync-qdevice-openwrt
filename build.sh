@@ -14,13 +14,8 @@ echo "=== Configuring OpenWrt Targets & Packages ==="
 cat << 'EOF' > .config
 CONFIG_TARGET_armsr=y
 CONFIG_TARGET_armsr_armv8=y
-CONFIG_PACKAGE_libqb=m
-CONFIG_PACKAGE_libknet=m
 CONFIG_PACKAGE_libnspr=m
 CONFIG_PACKAGE_libnss=m
-CONFIG_PACKAGE_corosync=m
-CONFIG_PACKAGE_corosync-tools=m
-CONFIG_PACKAGE_libcorosync=m
 CONFIG_PACKAGE_corosync-qnetd=m
 CONFIG_PACKAGE_corosync-nss-tools=m
 EOF
@@ -29,23 +24,14 @@ make defconfig
 
 NPROC=$(nproc 2>/dev/null || echo 4)
 
-echo "=== Step 1/6: Building libqb 2.0.10 ==="
-make package/corosync/libqb/compile V=s -j${NPROC}
-
-echo "=== Step 2/6: Building nspr 4.35 ==="
+echo "=== Step 1/3: Building nspr 4.35 ==="
 make package/corosync/nspr/compile V=s -j${NPROC}
 
-echo "=== Step 3/6: Building nss 3.98 ==="
+echo "=== Step 2/3: Building nss 3.98 ==="
 make package/corosync/nss/compile V=s -j${NPROC}
 
-echo "=== Step 4/6: Building libknet 1.35 ==="
-make package/corosync/libknet/compile V=s -j${NPROC}
-
-echo "=== Step 5/6: Building corosync-qnetd 3.0.4 ==="
+echo "=== Step 3/3: Building corosync-qnetd 3.0.4 ==="
 make package/corosync/corosync-qnetd/compile V=s -j${NPROC}
-
-echo "=== Step 6/6: Building corosync 3.2.0 (Cluster Engine) ==="
-make package/corosync/corosync/compile V=s -j${NPROC} || echo "Corosync cluster daemon skipped (qnetd ready)"
 
 echo "=== Collecting Compiled Packages ==="
 rm -f "${OUTPUT_DIR}"/*.ipk

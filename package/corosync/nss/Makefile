@@ -71,6 +71,7 @@ define Build/Compile
 		OS_REL_CFLAGS="" \
 		ARCHFLAG="" \
 		NSS_ENABLE_TESTS=0 \
+		NSS_DISABLE_GTESTS=1 \
 		XCFLAGS="$(filter-out -Wl%,$(TARGET_CFLAGS)) $(TARGET_CPPFLAGS) \
 			-I$(STAGING_DIR)/usr/include \
 			-I$(STAGING_DIR)/usr/include/nspr \

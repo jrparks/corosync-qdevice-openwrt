@@ -1,22 +1,20 @@
-# Corosync 3 & QNetd for OpenWrt 23.05
+# Corosync QNetd for OpenWrt 23.05
 
 [![OpenWrt 23.05](https://img.shields.io/badge/OpenWrt-23.05-blue.svg)](https://openwrt.org/)
-[![Corosync 3.2.0](https://img.shields.io/badge/Corosync-3.2.0-emerald.svg)](https://corosync.github.io/corosync/)
 [![QNetd 3.0.4](https://img.shields.io/badge/QNetd-3.0.4-cyan.svg)](https://github.com/corosync/corosync-qdevice)
 [![Proxmox VE Compatible](https://img.shields.io/badge/Proxmox_VE-7_|_8_|_9-orange.svg)](https://pve.proxmox.com/)
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE)
 
-Native OpenWrt 23.05 feed and automated build system for **Corosync 3.2.0**, **Corosync QNetd 3.0.4**, and supporting runtime libraries targeting `musl` libc embedded devices (ARM64 / Cortex-A53, x86_64, MediaTek Filogic).
+Native OpenWrt 23.05 feed and automated build system for **Corosync QNetd 3.0.4** and its NSS/NSPR runtime libraries, targeting `musl` libc embedded devices (ARM64 / Cortex-A53, x86_64, MediaTek Filogic).
 
-This suite enables running a lightweight quorum arbitrator or full cluster node directly on your OpenWrt router (e.g., GL.iNet Flint AX, Beryl AX, Brume 2, Raspberry Pi 4, Protectli, or x86_64 routers) to serve as a reliable third-vote tie-breaker for 2-node **Proxmox VE** clusters.
+This suite enables running a lightweight quorum arbitrator directly on your OpenWrt router (e.g., GL.iNet Flint AX, Beryl AX, Brume 2, Raspberry Pi 4, Protectli, or x86_64 routers) to serve as a reliable third-vote tie-breaker for 2-node **Proxmox VE** clusters.
 
 ---
 
 ## 🌟 Architecture & Features
 
-- **Full Cluster Engine & Arbitrator**: Builds both the standalone **Corosync QNetd 3.0.4** arbitrator daemon and the full **Corosync 3.2.0** cluster stack (`corosync`, `corosync-tools`, `libcorosync`).
-- **High-Performance Transport**: Powered by **Kronosnet (`libknet`) 1.35** with dynamic link failover, PMTU discovery, and low CPU overhead.
-- **Robust IPC on musl**: Built against **`libqb` 2.0.10**, resolving IPC socket starvation and poll loop issues on modern Linux kernels.
+- **Lean Arbitrator Only**: Builds the standalone **Corosync QNetd 3.0.4** daemon plus the NSS/NSPR runtime it links against. No cluster engine, no knet, no libqb.
+- **TLS Client Authentication**: QNetd uses NSS certificates; `pvecm qdevice setup` issues signed cluster certificates.
 - **Proxmox VE 7 / 8 / 9 Ready**: Includes `certutil-wrapper` with automatic OpenSSL 3.x `-legacy` fallback support, eliminating PKCS#12 signing failures during `pvecm qdevice setup`.
 - **Automated OpenWrt Setup**: Provides `corosync-qnetd-setup` to initialize the NSS certificate database, generate cryptographic signatures, configure UCI firewall rules, and symlink Dropbear SFTP server paths.
 - **Zero-Footprint Procd Integration**: Native OpenWrt `procd` service scripts with automatic respawn, clean process supervision, and log redirection.
@@ -30,11 +28,6 @@ This suite enables running a lightweight quorum arbitrator or full cluster node 
 | :--- | :--- | :--- | :--- |
 | **`corosync-qnetd`** | 3.0.4 | Lightweight quorum arbitrator daemon | `/usr/sbin/corosync-qnetd`, `/etc/init.d/corosync-qnetd` |
 | **`corosync-nss-tools`** | 3.0.4 | Setup assistant, certificate wrapper, and utilities | `/usr/sbin/corosync-qnetd-setup`, `corosync-qnetd-certutil`, `certutil`, `pk12util` |
-| **`corosync`** | 3.2.0 | Complete cluster engine daemon | `/usr/sbin/corosync`, `/etc/init.d/corosync`, `/etc/corosync/corosync.conf` |
-| **`corosync-tools`** | 3.2.0 | Diagnostic and management CLI tools | `corosync-cfgtool`, `corosync-cmapctl`, `corosync-quorumtool`, `corosync-cpgtool` |
-| **`libcorosync`** | 3.2.0 | Corosync core shared libraries | `libvotequorum.so`, `libcpg.so`, `libcmap.so`, `libcfg.so` |
-| **`libknet`** | 1.35 | Kronosnet high-availability network transport | `/usr/lib/libknet.so.1` |
-| **`libqb`** | 2.0.10 | Client-server IPC, atomic logging, and poll loop | `/usr/lib/libqb.so.100` |
 | **`libnss`** | 3.98 | Mozilla Network Security Services crypto engine | `libnss3.so`, `libssl3.so`, `libsoftokn3.so`, `libfreebl3.so` |
 | **`libnspr`** | 4.35 | Netscape Portable Runtime library | `libnspr4.so`, `libplds4.so`, `libplc4.so` |
 
@@ -46,8 +39,8 @@ Optimized for flash-constrained embedded hardware with minimal RAM impact:
 
 | Metric | Footprint | Details |
 | :--- | :--- | :--- |
-| **Total Download Size (`.ipk` files)** | **~1.82 MB** | Compressed `.ipk` archives transferred via `scp` |
-| **Uncompressed Flash Storage (`/overlay`)** | **~4.85 MB – 5.1 MB** | Total disk footprint on OpenWrt root overlay |
+| **Total Download Size (`.ipk` files)** | **~1.7 MB** | Compressed `.ipk` archives transferred via `scp` |
+| **Uncompressed Flash Storage (`/overlay`)** | **~4.5 MB – 4.8 MB** | Total disk footprint on OpenWrt root overlay |
 | **Active RAM Usage (Resident RSS)** | **~12 MB – 16 MB** | Idle memory consumption under `procd` monitoring |
 | **Flash Usage on GL-MT3000 (Beryl AX)** | **~2.0%** | Of 256 MB NAND Flash |
 | **Flash Usage on GL-MT6000 (Flint 2)** | **< 0.1%** | Of 8 GB eMMC Storage |
@@ -63,11 +56,11 @@ This repository includes a multi-architecture **GitHub Actions Matrix Workflow**
 1. Push your repository to GitHub:
    ```bash
    git add .
-   git commit -m "Build Corosync & QNetd for OpenWrt"
+   git commit -m "Build QNetd for OpenWrt"
    git push origin master
    ```
 2. In your GitHub repository, open the **Actions** tab.
-3. The **"Build OpenWrt Corosync & QNetd"** workflow will trigger automatically and build across target architectures:
+3. The **"Build OpenWrt QNetd"** workflow will trigger automatically and build across target architectures:
    - `glinet-aarch64` (GL.iNet Flint AX1800, Beryl AX MT3000, Brume 2 MT2500)
    - `armsr-armv8` (Generic 64-bit ARM, Raspberry Pi 4, ARM VMs)
    - `mediatek-filogic` (GL.iNet Flint 2 MT6000, Filogic 820/830)
@@ -75,7 +68,7 @@ This repository includes a multi-architecture **GitHub Actions Matrix Workflow**
 4. When finished, scroll to **Artifacts** at the bottom of the run page and download the ZIP archive for your hardware (e.g. `corosync-ipks-glinet-aarch64.zip`).
 
 ### Method B: Manual Dispatch from GitHub UI
-1. Go to **Actions** → **Build OpenWrt Corosync & QNetd**.
+1. Go to **Actions** → **Build OpenWrt QNetd**.
 2. Click **Run workflow**.
 3. Select your desired architecture or choose `all` to build the full matrix.
 4. *(Optional)* Check **"Publish as GitHub Release with attached IPKs"** to generate a tagged GitHub Release with attached IPK files and `SHA256SUMS.txt`.
@@ -83,8 +76,8 @@ This repository includes a multi-architecture **GitHub Actions Matrix Workflow**
 ### Method C: Automated Release via Version Tagging
 Tagging any release tag will trigger a full release build:
 ```bash
-git tag v3.2.0-1
-git push origin v3.2.0-1
+git tag v3.0.4-1
+git push origin v3.0.4-1
 ```
 The compiled `.ipk` files and checksums will be automatically published on your GitHub **Releases** page.
 
@@ -122,17 +115,13 @@ ssh root@<router-ip>
 opkg update
 opkg install openssh-sftp-server
 
-# 2. Install Corosync & QNetd packages
+# 2. Install QNetd packages
 opkg install --nodeps --force-reinstall \
   /tmp/libnspr_*.ipk \
   /tmp/libnss_*.ipk \
-  /tmp/libqb_*.ipk \
-  /tmp/libknet_*.ipk \
   /tmp/corosync-qnetd_*.ipk \
   /tmp/corosync-nss-tools_*.ipk
 ```
-
-*(Optional: If running a full cluster node on OpenWrt, also install `/tmp/libcorosync_*.ipk`, `/tmp/corosync_*.ipk`, and `/tmp/corosync-tools_*.ipk`)*.
 
 ---
 
