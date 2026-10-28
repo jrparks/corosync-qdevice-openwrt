@@ -57,7 +57,7 @@ This repository includes a multi-architecture **GitHub Actions Matrix Workflow**
    ```bash
    git add .
    git commit -m "Build QNetd for OpenWrt"
-   git push origin master
+   git push origin main
    ```
 2. In your GitHub repository, open the **Actions** tab.
 3. The **"Build OpenWrt QNetd"** workflow will trigger automatically and build across target architectures:
@@ -68,10 +68,23 @@ This repository includes a multi-architecture **GitHub Actions Matrix Workflow**
 4. When finished, scroll to **Artifacts** at the bottom of the run page and download the ZIP archive for your hardware (e.g. `corosync-ipks-glinet-aarch64.zip`).
 
 ### Method B: Manual Dispatch from GitHub UI
-1. Go to **Actions** → **Build OpenWrt QNetd**.
-2. Click **Run workflow**.
-3. Select your desired architecture or choose `all` to build the full matrix.
-4. *(Optional)* Check **"Publish as GitHub Release with attached IPKs"** to generate a tagged GitHub Release with attached IPK files and `SHA256SUMS.txt`.
+1. Go to **Actions** → **Build OpenWrt QNetd** → **Run workflow**.
+2. **Target Architecture**: a single target now builds only that target; `all` builds the full matrix.
+3. **OpenWrt Version**: `23.05.5`, `23.05.4` or `23.05.3`.
+4. **Publish as GitHub Release**: attach the built IPKs to a release.
+5. **Release tag**: `vX.Y.Z`, defaults to `v3.0.4`.
+6. **Existing run ID**: optional. When set, the build job is skipped and the artifacts of that run are published instead, so a green build can be released without rebuilding.
+
+CLI equivalent, publishing the artifacts of an existing green run:
+
+```bash
+gh workflow run build.yml \
+  -f target=all \
+  -f openwrt_version=23.05.5 \
+  -f create_release=true \
+  -f release_tag=v3.0.4 \
+  -f release_run_id=40631612000
+```
 
 ### Method C: Automated Release via Version Tagging
 Tagging a release triggers a full build and publishes a GitHub Release. Tags follow the upstream corosync convention, `vX.Y.Z`, where `X.Y.Z` is the corosync-qdevice version being packaged:
@@ -79,9 +92,9 @@ Tagging a release triggers a full build and publishes a GitHub Release. Tags fol
 git tag v3.0.4
 git push origin v3.0.4
 ```
-The release is named after the tag and contains every target's IPKs grouped by target directory (`armsr-armv8`, `glinet-aarch64`, `mediatek-filogic`, `x86-64`), plus `COMBINED_SHA256SUMS.txt`.
+The release is named after the tag and holds one asset per package and architecture: 16 IPKs plus `COMBINED_SHA256SUMS.txt`. Release assets are uploaded flat, and filenames are unique per architecture: the GL.iNet repack rewrites both the package architecture and the filename to `aarch64_cortex-a53_neon-vfpv4`, so it cannot collide with `armsr-armv8`. `COMBINED_SHA256SUMS.txt` records each file under its target directory (`armsr-armv8/`, `glinet-aarch64/`, `mediatek-filogic/`, `x86-64/`), so verify downloaded assets by basename.
 
-Release assets are unique per architecture: the GL.iNet repack rewrites both the package architecture and the filename to `aarch64_cortex-a53_neon-vfpv4`, so it cannot collide with the `armsr-armv8` packages. When using manual dispatch, set the **Release tag** input to the same `vX.Y.Z` form.
+Current release: [v3.0.4](https://github.com/jrparks/corosync-qdevice-openwrt/releases/tag/v3.0.4).
 
 ---
 
@@ -97,7 +110,7 @@ bash run-build.sh
 TARGET_ARCH_OVERRIDE="aarch64_cortex-a53_neon-vfpv4" bash run-build.sh
 ```
 
-Compiled `.ipk` packages and `SHA256SUMS.txt` will be placed in `./output/`.
+Compiled `.ipk` packages and `SHA256SUMS.txt` will be placed in `./output/`. With `TARGET_ARCH_OVERRIDE`, file names keep the `_aarch64_generic` suffix while the `Architecture:` field inside the package is rewritten; the CI workflow additionally renames those files to `aarch64_cortex-a53_neon-vfpv4`.
 
 ---
 
