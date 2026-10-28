@@ -47,7 +47,7 @@ jobs:
         run: |
           CHOICE="${{ github.event.inputs.target || 'all' }}"
           if [ "$CHOICE" = "all" ]; then
-            echo 'targets=["glinet-aarch64", "armsr-armv8", "x86-64"]' >> $GITHUB_OUTPUT
+            echo 'targets=["glinet-aarch64", "armsr-armv8", "mediatek-filogic", "x86-64"]' >> $GITHUB_OUTPUT
           elif [[ "$CHOICE" == *"glinet-aarch64"* ]]; then
             echo 'targets=["glinet-aarch64"]' >> $GITHUB_OUTPUT
           elif [[ "$CHOICE" == *"mediatek-filogic"* ]]; then
