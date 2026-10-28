@@ -51,17 +51,21 @@ jobs:
       - id: set-targets
         run: |
           CHOICE="${{ github.event.inputs.target || 'all' }}"
-          if [ "$CHOICE" = "all" ]; then
-            echo 'targets=["glinet-aarch64", "armsr-armv8", "mediatek-filogic", "x86-64"]' >> $GITHUB_OUTPUT
-          elif [[ "$CHOICE" == *"glinet-aarch64"* ]]; then
-            echo 'targets=["glinet-aarch64"]' >> $GITHUB_OUTPUT
-          elif [[ "$CHOICE" == *"mediatek-filogic"* ]]; then
-            echo 'targets=["mediatek-filogic"]' >> $GITHUB_OUTPUT
-          elif [[ "$CHOICE" == *"x86-64"* ]]; then
-            echo 'targets=["x86-64"]' >> $GITHUB_OUTPUT
-          else
-            echo 'targets=["glinet-aarch64"]' >> $GITHUB_OUTPUT
-          fi
+          GLINET='{"target_id":"glinet-aarch64","target":"armsr","subtarget":"armv8","repack_arch":"aarch64_cortex-a53_neon-vfpv4"}'
+          ARMSR='{"target_id":"armsr-armv8","target":"armsr","subtarget":"armv8","repack_arch":""}'
+          FILOGIC='{"target_id":"mediatek-filogic","target":"mediatek","subtarget":"filogic","repack_arch":""}'
+          X86='{"target_id":"x86-64","target":"x86","subtarget":"64","repack_arch":""}'
+          # A one-element base matrix plus `include` appends every unmatched
+          # include entry, so selection must produce the full matrix objects.
+          case "$CHOICE" in
+            all) targets="$GLINET,$ARMSR,$FILOGIC,$X86" ;;
+            *glinet-aarch64*) targets="$GLINET" ;;
+            *armsr-armv8*) targets="$ARMSR" ;;
+            *mediatek-filogic*) targets="$FILOGIC" ;;
+            *x86-64*) targets="$X86" ;;
+            *) targets="$GLINET" ;;
+          esac
+          echo "targets=[$targets]" >> $GITHUB_OUTPUT
 
   build:
     needs: matrix-prep
@@ -69,24 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target_id: ${{ fromJson(needs.matrix-prep.outputs.targets) }}
-        include:
-          - target_id: 'glinet-aarch64'
-            target: 'armsr'
-            subtarget: 'armv8'
-            repack_arch: 'aarch64_cortex-a53_neon-vfpv4'
-          - target_id: 'armsr-armv8'
-            target: 'armsr'
-            subtarget: 'armv8'
-            repack_arch: ''
-          - target_id: 'x86-64'
-            target: 'x86'
-            subtarget: '64'
-            repack_arch: ''
-          - target_id: 'mediatek-filogic'
-            target: 'mediatek'
-            subtarget: 'filogic'
-            repack_arch: ''
+        include: ${{ fromJson(needs.matrix-prep.outputs.targets) }}
 
     steps:
       - name: Checkout Source Code
