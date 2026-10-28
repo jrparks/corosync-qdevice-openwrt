@@ -17,8 +17,11 @@ PKG_BUILD_DEPENDS:=libnss
 include $(INCLUDE_DIR)/package.mk
 
 # Bypass unconditional PKG_CHECK_MODULES for corosync libs (only used by qdevice, not qnetd)
+# GROFF=/bin/true keeps BUILD_HTML_DOCS off: hosts with groff installed but
+# without the html device (e.g. groff-base on CI) otherwise fail on *.8.html.
 CONFIGURE_VARS += \
 	PKG_CONFIG_PATH="$(STAGING_DIR)/usr/lib/pkgconfig" \
+	GROFF=/bin/true \
 	nss_CFLAGS="-I$(STAGING_DIR)/usr/include/nss -I$(STAGING_DIR)/usr/include/nspr" \
 	nss_LIBS="-L$(STAGING_DIR)/usr/lib -lnss3 -lssl3 -lsmime3 -lnssutil3 -lnspr4 -lplc4 -lplds4" \
 	corosync_common_CFLAGS=" " \
