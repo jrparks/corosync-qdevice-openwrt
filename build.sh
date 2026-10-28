@@ -42,19 +42,23 @@ if [ -n "${TARGET_ARCH_OVERRIDE}" ]; then
     echo "=== Adapting IPK Architecture metadata to: ${TARGET_ARCH_OVERRIDE} ==="
     for ipk in "${OUTPUT_DIR}"/*.ipk; do
         [ -f "$ipk" ] || continue
+        # Absolute path: the subshell chdirs into $tmpdir before reading $ipk
+        ipk_abs=$(readlink -f "$ipk")
         tmpdir=$(mktemp -d)
-        (
-            cd "$tmpdir"
-            tar xzf "$ipk"
-            mkdir ctrl
-            tar xzf control.tar.gz -C ctrl
-            sed -i "s/^Architecture: .*/Architecture: ${TARGET_ARCH_OVERRIDE}/" ctrl/control
-            (cd ctrl && tar czf ../control.tar.gz .)
-            rm -rf ctrl
-            rm "$ipk"
-            tar czf "$ipk" debian-binary control.tar.gz data.tar.gz
-        )
+        tar xzf "$ipk_abs" -C "$tmpdir"
+        mkdir "$tmpdir/ctrl"
+        tar xzf "$tmpdir/control.tar.gz" -C "$tmpdir/ctrl"
+        old_arch=$(sed -n 's/^Architecture: //p' "$tmpdir/ctrl/control")
+        sed -i "s/^Architecture: .*/Architecture: ${TARGET_ARCH_OVERRIDE}/" "$tmpdir/ctrl/control"
+        (cd "$tmpdir/ctrl" && tar czf ../control.tar.gz .)
+        rm -rf "$tmpdir/ctrl"
+        rm "$ipk_abs"
+        (cd "$tmpdir" && tar czf "$ipk_abs" ./debian-binary ./control.tar.gz ./data.tar.gz)
         rm -rf "$tmpdir"
+        # Rename to the repacked arch so the file name matches its metadata
+        if [ -n "$old_arch" ] && [ "$old_arch" != "${TARGET_ARCH_OVERRIDE}" ]; then
+            mv "$ipk_abs" "${ipk_abs%_${old_arch}.ipk}_${TARGET_ARCH_OVERRIDE}.ipk"
+        fi
     done
 fi
 

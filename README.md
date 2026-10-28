@@ -106,11 +106,11 @@ If you prefer building locally on your workstation using Docker:
 # Build for generic 64-bit ARM:
 bash run-build.sh
 
-# Build with GL.iNet architecture tag override (aarch64_cortex-a53):
+# Build with GL.iNet architecture tag override (aarch64_cortex-a53_neon-vfpv4):
 TARGET_ARCH_OVERRIDE="aarch64_cortex-a53_neon-vfpv4" bash run-build.sh
 ```
 
-Compiled `.ipk` packages and `SHA256SUMS.txt` will be placed in `./output/`. With `TARGET_ARCH_OVERRIDE`, file names keep the `_aarch64_generic` suffix while the `Architecture:` field inside the package is rewritten; the CI workflow additionally renames those files to `aarch64_cortex-a53_neon-vfpv4`.
+Compiled `.ipk` packages and `SHA256SUMS.txt` will be placed in `./output/`. With `TARGET_ARCH_OVERRIDE`, both the `Architecture:` field and the package file name are rewritten to that architecture, matching the CI build.
 
 ---
 
