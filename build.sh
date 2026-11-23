@@ -3,6 +3,8 @@ set -e
 
 SDK_DIR=/opt/sdk
 OUTPUT_DIR=/build/output
+TARGET="${TARGET:-armsr}"
+SUBTARGET="${SUBTARGET:-armv8}"
 mkdir -p "${OUTPUT_DIR}"
 
 echo "=== Copying Corosync & Supporting Packages into OpenWrt SDK ==="
@@ -11,9 +13,9 @@ cp -r /build/package/* "${SDK_DIR}/package/"
 cd "${SDK_DIR}"
 
 echo "=== Configuring OpenWrt Targets & Packages ==="
-cat << 'EOF' > .config
-CONFIG_TARGET_armsr=y
-CONFIG_TARGET_armsr_armv8=y
+cat << EOF > .config
+CONFIG_TARGET_${TARGET}=y
+CONFIG_TARGET_${TARGET}_${SUBTARGET}=y
 CONFIG_PACKAGE_libnspr=m
 CONFIG_PACKAGE_libnss=m
 CONFIG_PACKAGE_corosync-qnetd=m
@@ -24,18 +26,29 @@ make defconfig
 
 NPROC=$(nproc 2>/dev/null || echo 4)
 
-echo "=== Step 1/3: Building nspr 4.35 ==="
+echo "=== Step 1/3: Building nspr 4.41 ==="
 make package/corosync/nspr/compile V=s -j${NPROC}
 
-echo "=== Step 2/3: Building nss 3.98 ==="
+echo "=== Step 2/3: Building nss 3.134 ==="
 make package/corosync/nss/compile V=s -j${NPROC}
 
-echo "=== Step 3/3: Building corosync-qnetd 3.0.4 ==="
+echo "=== Step 3/3: Building corosync-qnetd 3.0.5 ==="
 make package/corosync/corosync-qnetd/compile V=s -j${NPROC}
 
 echo "=== Collecting Compiled Packages ==="
-rm -f "${OUTPUT_DIR}"/*.ipk
-find bin/packages -name "*.ipk" -exec cp {} "${OUTPUT_DIR}/" \;
+rm -f "${OUTPUT_DIR}"/*.ipk "${OUTPUT_DIR}"/*.apk
+find bin/packages \( -name "*.ipk" -o -name "*.apk" \) -exec cp {} "${OUTPUT_DIR}/" \;
+
+# OpenWrt 25.12 apk file names carry no arch; append it from the SDK config
+if ls "${OUTPUT_DIR}"/*.apk >/dev/null 2>&1; then
+    ARCH=$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\(.*\)"$/\1/p' "${SDK_DIR}/.config")
+    for apk in "${OUTPUT_DIR}"/*.apk; do
+        case "$apk" in
+            *_"${ARCH}".apk) continue ;;
+        esac
+        mv "$apk" "${apk%.apk}_${ARCH}.apk"
+    done
+fi
 
 # Repack ipks for GL.iNet if TARGET_ARCH_OVERRIDE is provided
 if [ -n "${TARGET_ARCH_OVERRIDE}" ]; then
@@ -63,7 +76,7 @@ if [ -n "${TARGET_ARCH_OVERRIDE}" ]; then
 fi
 
 cd "${OUTPUT_DIR}"
-sha256sum *.ipk > SHA256SUMS.txt 2>/dev/null || true
+ls *.ipk *.apk 2>/dev/null | xargs -r sha256sum > SHA256SUMS.txt || true
 
 echo "=== Build Complete! Packages ready in ${OUTPUT_DIR}: ==="
 ls -lh "${OUTPUT_DIR}"

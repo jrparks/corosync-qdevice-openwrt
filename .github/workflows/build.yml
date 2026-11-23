@@ -19,24 +19,39 @@ on:
           - 'armsr-armv8 (Generic ARM64 / RPi4 / VM)'
           - 'mediatek-filogic (GL.iNet Flint 2 GL-MT6000)'
           - 'x86-64 (Intel/AMD x86_64)'
+      package_format:
+        description: 'Package format (ipk = OpenWrt 23.05/opkg, apk = OpenWrt 25.12/apk)'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - 'both'
+          - 'ipk'
+          - 'apk'
       openwrt_version:
-        description: 'OpenWrt Version'
+        description: 'OpenWrt version for ipk builds'
         required: true
         default: '23.05.5'
         type: choice
         options:
           - '23.05.5'
+          - '23.05.6'
           - '23.05.4'
           - '23.05.3'
+      apk_openwrt_version:
+        description: 'OpenWrt version for apk builds'
+        required: true
+        default: '25.12.6'
+        type: string
       create_release:
         description: 'Publish as GitHub Release with attached IPKs'
         required: false
         default: false
         type: boolean
       release_tag:
-        description: 'Release tag, corosync style (e.g. v3.0.4)'
+        description: 'Release tag, corosync style (e.g. v3.0.5)'
         required: false
-        default: 'v3.0.4'
+        default: 'v3.0.5'
         type: string
       release_run_id:
         description: 'Existing run ID to publish from (skips the build jobs)'
@@ -56,23 +71,48 @@ jobs:
       - id: set-targets
         run: |
           CHOICE="${{ github.event.inputs.target || 'all' }}"
-          GLINET='{"target_id":"glinet-aarch64","target":"armsr","subtarget":"armv8","repack_arch":"aarch64_cortex-a53_neon-vfpv4"}'
-          ARMSR='{"target_id":"armsr-armv8","target":"armsr","subtarget":"armv8","repack_arch":""}'
-          FILOGIC='{"target_id":"mediatek-filogic","target":"mediatek","subtarget":"filogic","repack_arch":""}'
-          X86='{"target_id":"x86-64","target":"x86","subtarget":"64","repack_arch":""}'
+          FORMAT="${{ github.event.inputs.package_format || 'both' }}"
+          IPK_VER="${{ github.event.inputs.openwrt_version || '23.05.5' }}"
+          APK_VER="${{ github.event.inputs.apk_openwrt_version || '25.12.6' }}"
+
+          # entry <target_id> <target> <subtarget> <repack_arch> <format> <openwrt>
+          entry() {
+            printf '{"target_id":"%s","target":"%s","subtarget":"%s","repack_arch":"%s","format":"%s","openwrt":"%s"}' "$@"
+          }
+
+          case "$CHOICE" in
+            all) ids="glinet-aarch64 armsr-armv8 mediatek-filogic x86-64" ;;
+            *glinet-aarch64*) ids="glinet-aarch64" ;;
+            *armsr-armv8*) ids="armsr-armv8" ;;
+            *mediatek-filogic*) ids="mediatek-filogic" ;;
+            *x86-64*) ids="x86-64" ;;
+            *) ids="glinet-aarch64" ;;
+          esac
+
           # A one-element base matrix plus `include` appends every unmatched
           # include entry, so selection must produce the full matrix objects.
-          case "$CHOICE" in
-            all) targets="$GLINET,$ARMSR,$FILOGIC,$X86" ;;
-            *glinet-aarch64*) targets="$GLINET" ;;
-            *armsr-armv8*) targets="$ARMSR" ;;
-            *mediatek-filogic*) targets="$FILOGIC" ;;
-            *x86-64*) targets="$X86" ;;
-            *) targets="$GLINET" ;;
-          esac
+          targets=""
+          add() { targets="${targets:+$targets,}$1"; }
+          for id in $ids; do
+            case "$id" in
+              glinet-aarch64) t=armsr; st=armv8; repack=aarch64_cortex-a53_neon-vfpv4 ;;
+              armsr-armv8) t=armsr; st=armv8; repack= ;;
+              mediatek-filogic) t=mediatek; st=filogic; repack= ;;
+              x86-64) t=x86; st=64; repack= ;;
+            esac
+            if [ "$FORMAT" != apk ]; then
+              add "$(entry "$id" "$t" "$st" "$repack" ipk "$IPK_VER")"
+            fi
+            # GL.iNet stock firmware is opkg-based, so the repacked target is ipk only
+            if [ "$FORMAT" != ipk ] && [ -z "$repack" ]; then
+              add "$(entry "$id" "$t" "$st" "" apk "$APK_VER")"
+            fi
+          done
+          [ -n "$targets" ] || { echo "No targets selected for format '$FORMAT'" >&2; exit 1; }
           echo "targets=[$targets]" >> $GITHUB_OUTPUT
 
   build:
+    name: build (${{ matrix.target_id }}, ${{ matrix.format }}, OpenWrt ${{ matrix.openwrt }})
     needs: matrix-prep
     if: github.event.inputs.release_run_id == '' || github.event.inputs.release_run_id == null
     runs-on: ubuntu-22.04
@@ -90,23 +130,29 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib \
             gettext git libncurses-dev libssl-dev python3 python3-distutils unzip zlib1g-dev \
-            file wget rsync ca-certificates pkg-config autoconf automake libtool patchelf libnss3-tools
+            file wget rsync ca-certificates pkg-config autoconf automake libtool patchelf libnss3-tools \
+            python3-setuptools zstd
 
       - name: Download & Extract OpenWrt SDK
         run: |
-          VERSION="${{ github.event.inputs.openwrt_version || '23.05.5' }}"
+          VERSION="${{ matrix.openwrt }}"
           TARGET="${{ matrix.target }}"
           SUBTARGET="${{ matrix.subtarget }}"
-          SDK_URL="https://downloads.openwrt.org/releases/${VERSION}/targets/${TARGET}/${SUBTARGET}/openwrt-sdk-${VERSION}-${TARGET}-${SUBTARGET}_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
+          BASE="https://downloads.openwrt.org/releases/${VERSION}/targets/${TARGET}/${SUBTARGET}"
 
-          echo "Downloading OpenWrt SDK: $SDK_URL"
-          wget -q "$SDK_URL" -O sdk.tar.xz || \
-          wget -q "https://downloads.openwrt.org/releases/23.05.3/targets/${TARGET}/${SUBTARGET}/openwrt-sdk-23.05.3-${TARGET}-${SUBTARGET}_gcc-12.3.0_musl.Linux-x86_64.tar.xz" -O sdk.tar.xz || \
-          wget -q "https://downloads.openwrt.org/releases/23.05.3/targets/armsr/armv8/openwrt-sdk-23.05.3-armsr-armv8_gcc-12.3.0_musl.Linux-x86_64.tar.xz" -O sdk.tar.xz
+          # SDK file name embeds the GCC version and compression (23.05: gcc-12/.tar.xz,
+          # 25.12: gcc-14/.tar.zst), so look it up instead of hardcoding it.
+          SDK_FILE=$(wget -qO- "$BASE/" | grep -oE 'openwrt-sdk-[^"<>]+\.tar\.(xz|zst)' | head -n1)
+          if [ -z "$SDK_FILE" ]; then
+            echo "No SDK found at $BASE/" >&2
+            exit 1
+          fi
 
-          tar -xf sdk.tar.xz
+          echo "Downloading OpenWrt SDK: $BASE/$SDK_FILE"
+          wget -q "$BASE/$SDK_FILE" -O "$SDK_FILE"
+          tar -xf "$SDK_FILE"
+          rm -f "$SDK_FILE"
           mv openwrt-sdk-* sdk
-          rm -f sdk.tar.xz
 
       - name: Populate Packages & Configure Target
         run: |
@@ -130,19 +176,31 @@ jobs:
           cd sdk
           NPROC=$(nproc)
 
-          echo "=== 1/3: Compiling nspr 4.35 ==="
+          echo "=== 1/3: Compiling nspr 4.41 ==="
           make package/corosync/nspr/compile V=s -j${NPROC}
 
-          echo "=== 2/3: Compiling nss 3.98 ==="
+          echo "=== 2/3: Compiling nss 3.134 ==="
           make package/corosync/nss/compile V=s -j${NPROC}
 
-          echo "=== 3/3: Compiling corosync-qnetd 3.0.4 ==="
+          echo "=== 3/3: Compiling corosync-qnetd 3.0.5 ==="
           make package/corosync/corosync-qnetd/compile V=s -j${NPROC}
 
       - name: Harvest & Tag Packages
         run: |
           mkdir -p output
-          find sdk/bin/packages -name "*.ipk" -exec cp {} output/ \;
+          FORMAT="${{ matrix.format }}"
+          find sdk/bin/packages -name "*.${FORMAT}" -exec cp {} output/ \;
+          ls output/*."${FORMAT}" >/dev/null
+
+          # OpenWrt 25.12 apk file names carry no architecture, so append it
+          # to keep release assets unique across targets.
+          if [ "$FORMAT" = apk ]; then
+            ARCH=$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\(.*\)"$/\1/p' sdk/.config)
+            [ -n "$ARCH" ] || { echo "Cannot determine package arch" >&2; exit 1; }
+            for apk in output/*.apk; do
+              mv "$apk" "${apk%.apk}_${ARCH}.apk"
+            done
+          fi
 
           REPACK="${{ matrix.repack_arch }}"
           if [ -n "$REPACK" ]; then
@@ -171,7 +229,7 @@ jobs:
           fi
 
           cd output
-          sha256sum *.ipk > SHA256SUMS.txt
+          sha256sum *.${FORMAT} > SHA256SUMS.txt
           echo "=== Generated Packages: ==="
           ls -lh
           cat SHA256SUMS.txt
@@ -179,7 +237,7 @@ jobs:
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: corosync-ipks-${{ matrix.target_id }}
+          name: corosync-${{ matrix.format }}s-${{ matrix.target_id }}
           path: output/
 
   release:
@@ -210,13 +268,13 @@ jobs:
       - name: Consolidate Artifacts
         run: |
           mkdir -p release-dist
-          for dir in release-artifacts/corosync-ipks-*; do
+          for dir in release-artifacts/corosync-ipks-* release-artifacts/corosync-apks-*; do
             [ -d "$dir" ] || continue
-            target="${dir##*/corosync-ipks-}"
+            target="${dir##*/corosync-}"
             mkdir -p "release-dist/$target"
-            cp "$dir"/*.ipk "release-dist/$target"/
+            cp "$dir"/*.ipk "$dir"/*.apk "release-dist/$target"/ 2>/dev/null || true
           done
-          ( cd release-dist && find . -name '*.ipk' | sort | xargs -r sha256sum > COMBINED_SHA256SUMS.txt )
+          ( cd release-dist && find . \( -name '*.ipk' -o -name '*.apk' \) | sort | xargs -r sha256sum > COMBINED_SHA256SUMS.txt )
           find release-dist -type f | sort
 
       - name: Publish GitHub Release
@@ -228,23 +286,42 @@ jobs:
           prerelease: false
           files: |
             release-dist/**/*.ipk
+            release-dist/**/*.apk
             release-dist/COMBINED_SHA256SUMS.txt
           body: |
-            Corosync QNetd 3.0.4 for OpenWrt 23.05, built with NSS 3.98 and NSPR 4.35.
+            Corosync QNetd 3.0.5 for OpenWrt, built with NSS 3.134 and NSPR 4.41.
 
-            Assets are grouped per target architecture:
+            Two package formats are published:
 
-            - `armsr-armv8` - `aarch64_generic` (generic ARM64, Raspberry Pi 4, VMs)
-            - `glinet-aarch64` - `aarch64_cortex-a53_neon-vfpv4` (GL.iNet Flint / Beryl AX)
-            - `mediatek-filogic` - `aarch64_cortex-a53` (GL.iNet Flint 2 / GL-MT6000)
-            - `x86-64` - `x86_64`
+            - `.ipk` for OpenWrt ${{ github.event.inputs.openwrt_version || '23.05.5' }} and other opkg-based firmware (including GL.iNet stock firmware)
+            - `.apk` for OpenWrt ${{ github.event.inputs.apk_openwrt_version || '25.12.6' }} and later (apk-based)
+
+            Pick the files whose name ends with your router's package architecture:
+
+            | Target | Architecture | Formats | Devices |
+            | :--- | :--- | :--- | :--- |
+            | `mediatek-filogic` | `aarch64_cortex-a53` | ipk, apk | GL.iNet Flint 2 (GL-MT6000), other Filogic 820/830 routers |
+            | `glinet-aarch64` | `aarch64_cortex-a53_neon-vfpv4` | ipk | GL.iNet stock firmware (Flint, Beryl AX, Brume 2) |
+            | `armsr-armv8` | `aarch64_generic` | ipk, apk | Generic ARM64, Raspberry Pi 4, VMs |
+            | `x86-64` | `x86_64` | ipk, apk | x86_64 routers and VMs |
 
             Each target ships `libnspr`, `libnss`, `corosync-qnetd` and `corosync-nss-tools`.
 
-            Install on the router:
+            Install with opkg (`.ipk`), after copying the four files to `/tmp`:
 
             ```
-            opkg install --nodeps --force-reinstall libnspr_*.ipk libnss_*.ipk corosync-qnetd_*.ipk corosync-nss-tools_*.ipk
-            corosync-qnetd-setup
+            opkg install --nodeps --force-reinstall /tmp/libnspr_*.ipk /tmp/libnss_*.ipk /tmp/corosync-qnetd_*.ipk /tmp/corosync-nss-tools_*.ipk
+            ```
+
+            Install with apk (`.apk`), after copying the four files to `/tmp`. The packages are not signed with the OpenWrt release key, so `--allow-untrusted` is required:
+
+            ```
+            apk add --allow-untrusted /tmp/libnspr-*.apk /tmp/libnss-*.apk /tmp/corosync-qnetd-*.apk /tmp/corosync-nss-tools-*.apk
+            ```
+
+            Then:
+
+            ```
+            corosync-qnetd-setup <pve-node1-ip> <pve-node2-ip>
             /usr/sbin/corosync-qnetd-tool -s
             ```
