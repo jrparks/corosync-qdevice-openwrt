@@ -5,7 +5,7 @@ includedir=${prefix}/include/nss
 
 Name: NSS
 Description: Mozilla Network Security Services
-Version: 3.98
-Requires: nspr >= 4.35
+Version: 3.134
+Requires: nspr >= 4.41
 Libs: -L${libdir} -lnss3 -lssl3 -lsmime3 -lnssutil3
 Cflags: -I${includedir}
