@@ -6,7 +6,7 @@
 #
 # Arguments supported:
 #   -i                         Export CA certificate (initialize)
-#   -s -n cluster -c cert_req  Sign cluster cert request, output signed cert to stdout
+#   -s -n cluster -c cert_req  Sign cluster cert request into $NSSDB/cluster-<name>.crt
 #
 
 NSSDB="/etc/corosync/qnetd/nssdb"
@@ -35,65 +35,41 @@ do_init() {
 do_sign() {
     local cluster_name="$1"
     local cert_request_file="$2"
-    local tmpreq tmpcert tmpca_cert tmpca_key tmpca_p12
+    local crt_file="$NSSDB/cluster-${cluster_name}.crt"
+    local serial_file="$NSSDB/serial.txt"
+    local tmpreq serial ret
 
-    tmpreq=$(mktemp /tmp/qnetd-req-XXXXXX)
-    tmpcert=$(mktemp /tmp/qnetd-cert-XXXXXX)
-    tmpca_cert=$(mktemp /tmp/qnetd-ca-cert-XXXXXX)
-    tmpca_key=$(mktemp /tmp/qnetd-ca-key-XXXXXX)
-    tmpca_p12=$(mktemp /tmp/qnetd-ca-p12-XXXXXX)
+    [ -f "$NSSDB/cert9.db" ] || { echo "NSS database $NSSDB not initialized (run -i first)" >&2; exit 1; }
 
+    tmpreq=$(mktemp /tmp/qnetd-req-XXXXXX) || exit 1
     if [ -n "$cert_request_file" ]; then
-        cp "$cert_request_file" "$tmpreq"
+        cp "$cert_request_file" "$tmpreq" || { rm -f "$tmpreq"; exit 1; }
     else
         cat > "$tmpreq"
     fi
 
-    # Export CA cert from NSS
-    certutil -L -d "sql:$NSSDB" -n "$CA_NICKNAME" -a > "$tmpca_cert" || {
-        rm -f "$tmpreq" "$tmpcert" "$tmpca_cert" "$tmpca_key" "$tmpca_p12"
-        exit 1
-    }
+    # Serial numbers 1 and 2 are used by the CA and server certificates.
+    serial=$(cat "$serial_file" 2>/dev/null)
+    case "$serial" in
+        ''|*[!0-9]*) serial=2 ;;
+    esac
+    serial=$((serial + 1))
+    echo "$serial" > "$serial_file"
 
-    # Export CA key from NSS via PKCS#12
-    pk12util -o "$tmpca_p12" -d "sql:$NSSDB" -n "$CA_NICKNAME" -W "" 2>/dev/null || {
-        rm -f "$tmpreq" "$tmpcert" "$tmpca_cert" "$tmpca_key" "$tmpca_p12"
-        exit 1
-    }
+    # Sign with NSS directly (same as upstream corosync-qnetd-certutil).
+    # certutil accepts both binary (DER) and ASCII (PEM) requests.
+    echo "Signing cluster certificate" >&2
+    certutil -C -v 1200 -m "$serial" -i "$tmpreq" -o "$crt_file" \
+        -c "$CA_NICKNAME" -d "sql:$NSSDB"
+    ret=$?
+    rm -f "$tmpreq"
 
-    # Extract CA private key (OpenSSL 3.x needs -legacy for NSS-generated PKCS#12)
-    openssl pkcs12 -legacy -in "$tmpca_p12" -nocerts -nodes \
-        -out "$tmpca_key" -passin pass: 2>/dev/null || \
-    openssl pkcs12 -in "$tmpca_p12" -nocerts -nodes \
-        -out "$tmpca_key" -passin pass: 2>/dev/null || {
-        rm -f "$tmpreq" "$tmpcert" "$tmpca_cert" "$tmpca_key" "$tmpca_p12"
-        exit 1
-    }
-
-    # Sign the cert request with OpenSSL (supports both DER & PEM)
-    openssl x509 -req \
-        -in "$tmpreq" -inform DER \
-        -CA "$tmpca_cert" -CAkey "$tmpca_key" \
-        -CAcreateserial \
-        -out "$tmpcert" \
-        -days 730 \
-        -sha256 2>/dev/null || \
-    openssl x509 -req \
-        -in "$tmpreq" -inform PEM \
-        -CA "$tmpca_cert" -CAkey "$tmpca_key" \
-        -CAcreateserial \
-        -out "$tmpcert" \
-        -days 730 \
-        -sha256 2>/dev/null
-
-    local ret=$?
     if [ $ret -eq 0 ]; then
-        cat "$tmpcert"
-        cp "$tmpcert" "$NSSDB/cluster-${cluster_name}.crt"
+        echo "Certificate stored in $crt_file" >&2
+    else
+        echo "Failed to sign certificate request" >&2
+        rm -f "$crt_file"
     fi
-
-    rm -f "$tmpreq" "$tmpcert" "$tmpca_cert" "$tmpca_key" "$tmpca_p12"
-    rm -f "${tmpca_cert}.srl" 2>/dev/null
     return $ret
 }
 
