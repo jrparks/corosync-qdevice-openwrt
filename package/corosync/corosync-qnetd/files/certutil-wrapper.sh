@@ -4,100 +4,197 @@
 # Server-side NSS certificate management for corosync-qnetd.
 # Called remotely by Proxmox `pvecm qdevice setup`.
 #
-# Arguments supported:
-#   -i                         Export CA certificate (initialize)
-#   -s -n cluster -c cert_req  Sign cluster cert request into $NSSDB/cluster-<name>.crt
+# POSIX sh port of upstream corosync-qnetd-certutil 3.0.5 (which needs bash),
+# accepting the same options:
+#   -i                  Initialize the QNetd CA and server certificate
+#   -I                  Add another QNetd CA and server certificate (hybrid PKI)
+#   -s -c crq -n name   Sign a cluster certificate request into
+#                       $DB_DIR/cluster-<name>.crt
+#   -C ca_nickname      CA certificate nickname (default "QNet CA")
+#   -S serv_nickname    Server certificate nickname (default "QNetd Cert")
+#   -g keysize          Passed to certutil -g
+#   -k keytype          Passed to certutil -k
+#   -q paramset         Passed to certutil -q (curve name, ml-dsa set)
+#   -G                  Accepted for compatibility, no effect
 #
 
-NSSDB="/etc/corosync/qnetd/nssdb"
+CONFIG_DIR="/etc/corosync/qnetd"
+DB_DIR="$CONFIG_DIR/nssdb"
+SERIAL_NO_FILE="$DB_DIR/serial.txt"
+CRT_VALIDITY=1200
 CA_NICKNAME="QNet CA"
+SERVER_NICKNAME="QNetd Cert"
+SERVER_SUBJECT="CN=Qnetd Server"
+CA_EXPORT_FILE="$DB_DIR/qnetd-cacert.crt"
 
-do_init() {
-    if [ ! -f "$NSSDB/cert9.db" ]; then
-        mkdir -p "$NSSDB"
-        dd if=/dev/urandom bs=2048 count=1 of=/tmp/nss-noise.bin 2>/dev/null
-        certutil -N -d "sql:$NSSDB" --empty-password || exit 1
-        certutil -S -n "$CA_NICKNAME" -s "CN=QNet CA" -x -t "CT,," \
-            -m 1 -v 1200 -d "sql:$NSSDB" -z /tmp/nss-noise.bin || exit 1
-        certutil -S -n "QNetd Cert" -s "CN=QNetd Server" \
-            -c "$CA_NICKNAME" -t "u,u,u" -m 2 -v 1200 \
-            -d "sql:$NSSDB" -z /tmp/nss-noise.bin || exit 1
-        rm -f /tmp/nss-noise.bin
-        chmod 700 "$NSSDB"
-        shlibsign -v -i /usr/lib/libfreeblpriv3.so >/dev/null 2>&1 || true
-        shlibsign -v -i /usr/lib/libsoftokn3.so >/dev/null 2>&1 || true
-    fi
+COROSYNC_QNETD_CERTUTIL_KEY_SIZE=""
+COROSYNC_QNETD_CERTUTIL_KEY_TYPE=""
+COROSYNC_QNETD_CERTUTIL_PARAMSET=""
 
-    certutil -L -d "sql:$NSSDB" -n "$CA_NICKNAME" -a \
-        > "$NSSDB/qnetd-cacert.crt" || exit 1
+if [ -f /etc/default/corosync-qnetd ]; then
+    . /etc/default/corosync-qnetd
+fi
+
+errx() {
+    echo "$2" >&2
+    exit "$1"
 }
 
-do_sign() {
-    local cluster_name="$1"
-    local cert_request_file="$2"
-    local crt_file="$NSSDB/cluster-${cluster_name}.crt"
-    local serial_file="$NSSDB/serial.txt"
-    local tmpreq serial ret
+usage() {
+    echo "$0: [-I|-i|-s] [-C ca_nickname] [-c certificate] [-G] [-g keysize] [-k keytype] [-n cluster_name] [-q paramset] [-S serv_nickname]"
+    echo ""
+    echo " -I                  Generate and add another QNetd CA and new server certificate"
+    echo " -i                  Initialize QNetd CA and generate server certificate"
+    echo " -s                  Sign cluster certificate (needs cluster certificate)"
+    echo " -C ca_nickname      NSS database QNetd CA certificate nickname"
+    echo " -c certificate      Certificate request to sign"
+    echo " -g keysize          Key size in bits - passed directly to certutil as -g parameter"
+    echo " -k keytype          Type of key - passed directly to certutil as -k parameter"
+    echo " -n cluster_name     Name of cluster (for -s operation)"
+    echo " -q paramset         Parameter set (curve name, ml-dsa set) - passed directly to certutil as -q parameter"
+    echo " -S serv_nickname    NSS database QNetd server certificate nickname"
+}
 
-    [ -f "$NSSDB/cert9.db" ] || { echo "NSS database $NSSDB not initialized (run -i first)" >&2; exit 1; }
+cert_db_exists() {
+    [ -f "$DB_DIR/cert9.db" ] || [ -f "$DB_DIR/cert8.db" ]
+}
 
-    tmpreq=$(mktemp /tmp/qnetd-req-XXXXXX) || exit 1
-    if [ -n "$cert_request_file" ]; then
-        cp "$cert_request_file" "$tmpreq" || { rm -f "$tmpreq"; exit 1; }
-    else
-        cat > "$tmpreq"
-    fi
+nss_nickname_exists() {
+    certutil -L -d "sql:$DB_DIR" -n "$1" >/dev/null 2>&1
+}
 
-    # Serial numbers 1 and 2 are used by the CA and server certificates.
-    serial=$(cat "$serial_file" 2>/dev/null)
-    case "$serial" in
-        ''|*[!0-9]*) serial=2 ;;
+get_certutil_key_params() {
+    params=""
+    [ -n "$COROSYNC_QNETD_CERTUTIL_KEY_SIZE" ] && params="$params -g $COROSYNC_QNETD_CERTUTIL_KEY_SIZE"
+    [ -n "$COROSYNC_QNETD_CERTUTIL_KEY_TYPE" ] && params="$params -k $COROSYNC_QNETD_CERTUTIL_KEY_TYPE"
+    [ -n "$COROSYNC_QNETD_CERTUTIL_PARAMSET" ] && params="$params -q $COROSYNC_QNETD_CERTUTIL_PARAMSET"
+    echo "$params"
+}
+
+# Like upstream, serial numbers start at 101. Databases created by older
+# releases of this package used 1 and 2, so there is no overlap.
+get_serial_no() {
+    serial_no=$(cat "$SERIAL_NO_FILE" 2>/dev/null)
+    case "$serial_no" in
+        ''|*[!0-9]*) serial_no=100 ;;
     esac
-    serial=$((serial + 1))
-    echo "$serial" > "$serial_file"
+    serial_no=$((serial_no + 1))
+    echo "$serial_no" > "$SERIAL_NO_FILE" || return 1
+    echo "$serial_no"
+}
 
-    # Sign with NSS directly (same as upstream corosync-qnetd-certutil).
-    # certutil accepts both binary (DER) and ASCII (PEM) requests.
-    echo "Signing cluster certificate" >&2
-    certutil -C -v 1200 -m "$serial" -i "$tmpreq" -o "$crt_file" \
-        -c "$CA_NICKNAME" -d "sql:$NSSDB"
+# Run certutil -S with a fresh noise file. Extra arguments are passed through.
+certutil_generate() {
+    noise_file=$(mktemp /tmp/qnetd-noise-XXXXXX) || return 1
+    dd if=/dev/urandom bs=2048 count=1 of="$noise_file" 2>/dev/null
+    # shellcheck disable=SC2046
+    certutil -S -d "sql:$DB_DIR" -z "$noise_file" "$@" $(get_certutil_key_params)
     ret=$?
-    rm -f "$tmpreq"
-
-    if [ $ret -eq 0 ]; then
-        echo "Certificate stored in $crt_file" >&2
-    else
-        echo "Failed to sign certificate request" >&2
-        rm -f "$crt_file"
-    fi
+    rm -f "$noise_file"
     return $ret
 }
 
-INIT=0
-SIGN=0
-CLUSTER_NAME=""
-CERT_REQUEST_FILE=""
+add_qnetd_ca() {
+    cert_db_exists || errx 1 "Certificate database doesn't exist. Use $0 -i to create it"
 
-while getopts "isn:d:c:t:CfFph" opt; do
+    nss_nickname_exists "$CA_NICKNAME" && \
+        errx 1 "Certificate nickname \"$CA_NICKNAME\" already exists in the database."
+    nss_nickname_exists "$SERVER_NICKNAME" && \
+        errx 1 "Certificate nickname \"$SERVER_NICKNAME\" already exists in the database."
+
+    echo "Creating new CA"
+    serial=$(get_serial_no) || errx 1 "Can't update $SERIAL_NO_FILE"
+    # -2 adds basicConstraints. certutil asks: is this a CA, path length, critical
+    printf 'y\n0\ny\n' | certutil_generate -n "$CA_NICKNAME" -s "CN=$CA_NICKNAME" -x \
+        -t "CT,," -m "$serial" -v "$CRT_VALIDITY" -2 >/dev/null || \
+        errx 1 "Failed to create CA certificate \"$CA_NICKNAME\""
+
+    # Export CA certificate (pretty-printed text followed by ascii, like upstream)
+    certutil -L -d "sql:$DB_DIR" -n "$CA_NICKNAME" > "$CA_EXPORT_FILE" && \
+    certutil -L -d "sql:$DB_DIR" -n "$CA_NICKNAME" -a >> "$CA_EXPORT_FILE" || \
+        errx 1 "Failed to export CA certificate to $CA_EXPORT_FILE"
+
+    serial=$(get_serial_no) || errx 1 "Can't update $SERIAL_NO_FILE"
+    certutil_generate -n "$SERVER_NICKNAME" -s "$SERVER_SUBJECT" -c "$CA_NICKNAME" \
+        -t "u,u,u" -m "$serial" -v "$CRT_VALIDITY" || \
+        errx 1 "Failed to create server certificate \"$SERVER_NICKNAME\""
+
+    echo "QNetd CA certificate is exported as $CA_EXPORT_FILE"
+}
+
+init_qnetd_ca() {
+    if cert_db_exists; then
+        # pvecm runs -i on every setup; keep the existing CA and re-export it
+        # instead of failing like upstream does.
+        echo "Certificate database ($DB_DIR) already exists, re-exporting CA certificate"
+        certutil -L -d "sql:$DB_DIR" -n "$CA_NICKNAME" > "$CA_EXPORT_FILE" && \
+        certutil -L -d "sql:$DB_DIR" -n "$CA_NICKNAME" -a >> "$CA_EXPORT_FILE" || \
+            errx 1 "Failed to export CA certificate to $CA_EXPORT_FILE"
+        return 0
+    fi
+
+    echo "Creating $DB_DIR"
+    mkdir -p "$DB_DIR" || errx 1 "Can't create $DB_DIR"
+    chmod 700 "$DB_DIR"
+
+    echo "Creating new key and cert db"
+    certutil -N -d "sql:$DB_DIR" --empty-password || errx 1 "Failed to create certificate database"
+
+    # NSS self-tests need the integrity check files next to the libraries
+    shlibsign -v -i /usr/lib/libfreeblpriv3.so >/dev/null 2>&1 || true
+    shlibsign -v -i /usr/lib/libsoftokn3.so >/dev/null 2>&1 || true
+
+    add_qnetd_ca
+}
+
+sign_cert() {
+    cert_db_exists || errx 1 "Certificate database doesn't exist. Use $0 -i to create it"
+    [ -f "$CERTIFICATE_FILE" ] || errx 2 "Can't open certificate file $CERTIFICATE_FILE"
+    [ -n "$CLUSTER_NAME" ] || errx 2 "You have to specify cluster name"
+
+    crt_file="$DB_DIR/cluster-$CLUSTER_NAME.crt"
+    serial=$(get_serial_no) || errx 1 "Can't update $SERIAL_NO_FILE"
+
+    echo "Signing cluster certificate"
+    # certutil accepts both binary (DER) and ASCII (PEM) requests
+    if ! certutil -C -v "$CRT_VALIDITY" -m "$serial" -i "$CERTIFICATE_FILE" \
+        -o "$crt_file" -c "$CA_NICKNAME" -d "sql:$DB_DIR"; then
+        rm -f "$crt_file"
+        errx 1 "Failed to sign certificate request $CERTIFICATE_FILE"
+    fi
+
+    echo "Certificate stored in $crt_file"
+}
+
+OPERATION=""
+CERTIFICATE_FILE=""
+CLUSTER_NAME=""
+
+while getopts ":IGhisC:c:g:k:n:q:S:" opt; do
     case "$opt" in
-    i) INIT=1 ;;
-    s) SIGN=1 ;;
-    n) CLUSTER_NAME="$OPTARG" ;;
-    c) CERT_REQUEST_FILE="$OPTARG" ;;
-    *) ;;
+        I) OPERATION=add_qnetd_ca ;;
+        i) OPERATION=init_qnetd_ca ;;
+        s) OPERATION=sign_cert ;;
+        h) usage; exit 0 ;;
+        G) ;;
+        C)
+            CA_NICKNAME="$OPTARG"
+            CA_EXPORT_FILE="$DB_DIR/qnetd-cacert-$CA_NICKNAME.crt"
+            ;;
+        c) CERTIFICATE_FILE="$OPTARG" ;;
+        g) COROSYNC_QNETD_CERTUTIL_KEY_SIZE="$OPTARG" ;;
+        k) COROSYNC_QNETD_CERTUTIL_KEY_TYPE="$OPTARG" ;;
+        n) CLUSTER_NAME="$OPTARG" ;;
+        q) COROSYNC_QNETD_CERTUTIL_PARAMSET="$OPTARG" ;;
+        S) SERVER_NICKNAME="$OPTARG" ;;
+        \?) errx 1 "Invalid option: -$OPTARG" ;;
+        :) errx 1 "Option -$OPTARG requires an argument." ;;
     esac
 done
 
-if [ $INIT -eq 1 ]; then
-    do_init
-    exit $?
-fi
-
-if [ $SIGN -eq 1 ]; then
-    [ -z "$CLUSTER_NAME" ] && { echo "cluster name required (-n)" >&2; exit 1; }
-    do_sign "$CLUSTER_NAME" "$CERT_REQUEST_FILE"
-    exit $?
-fi
-
-echo "Usage: $0 -i | -s -n cluster_name [-c cert_request_file]" >&2
-exit 1
+case "$OPERATION" in
+    init_qnetd_ca) init_qnetd_ca ;;
+    add_qnetd_ca) add_qnetd_ca ;;
+    sign_cert) sign_cert ;;
+    *) usage; exit 1 ;;
+esac

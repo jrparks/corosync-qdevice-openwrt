@@ -1,12 +1,12 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nspr
-PKG_VERSION:=4.35
+PKG_VERSION:=4.41
 PKG_RELEASE:=1
 
 PKG_SOURCE:=nspr-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://archive.mozilla.org/pub/nspr/releases/v$(PKG_VERSION)/src/
-PKG_HASH:=skip
+PKG_HASH:=c562b8ddfe93704b7dc077be013f01448fdc6c124b1821c0f10471a71cb2e9e6
 
 PKG_BUILD_PARALLEL:=1
 PKG_INSTALL:=1

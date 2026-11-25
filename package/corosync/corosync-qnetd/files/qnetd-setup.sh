@@ -10,33 +10,10 @@ NSSDB=/etc/corosync/qnetd/nssdb
 
 echo "=== Initializing Corosync QNetd for OpenWrt ==="
 
-# Generate NSS integrity check files if missing (required by PKCS#11 self-tests)
-if [ ! -f /usr/lib/libfreeblpriv3.chk ] || [ ! -f /usr/lib/libsoftokn3.chk ]; then
-    echo "  Generating NSS cryptographic integrity signatures..."
-    if command -v shlibsign >/dev/null 2>&1; then
-        shlibsign -v -i /usr/lib/libfreeblpriv3.so 2>/dev/null || true
-        shlibsign -v -i /usr/lib/libsoftokn3.so 2>/dev/null || true
-    fi
-fi
-
-if [ ! -f "$NSSDB/cert9.db" ]; then
-    echo "  Creating NSS certificate database at $NSSDB..."
-    rm -f "$NSSDB"/*.db "$NSSDB"/*.dbm "$NSSDB"/*.sqldb "$NSSDB"/*.txt 2>/dev/null
-    mkdir -p "$NSSDB"
-    
-    # Generate NSS database using local certutil with random noise file
-    dd if=/dev/urandom bs=2048 count=1 of=/tmp/nss-noise.bin 2>/dev/null
-    certutil -N -d sql:$NSSDB --empty-password
-    certutil -S -n "QNet CA" -s "CN=QNet CA" -x -t "CT,," -m 1 -v 1200 \
-        -d sql:$NSSDB -z /tmp/nss-noise.bin
-    certutil -S -n "QNetd Cert" -s "CN=QNetd Server" \
-        -c "QNet CA" -t "u,u,u" -m 2 -v 1200 \
-        -d sql:$NSSDB -z /tmp/nss-noise.bin
-    rm -f /tmp/nss-noise.bin
-    chmod 700 "$NSSDB"
-    echo "  NSS database created successfully."
-else
-    echo "  NSS certificate database already exists."
+# Create the NSS database, QNetd CA and server certificate (no-op if present)
+if ! /usr/sbin/corosync-qnetd-certutil -i; then
+    echo "  ERROR: failed to initialize NSS certificate database in $NSSDB" >&2
+    exit 1
 fi
 
 # Firewall rule — single rule with all Proxmox node IPs as space-separated src_ip

@@ -1,12 +1,12 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=corosync-qdevice
-PKG_VERSION:=3.0.4
+PKG_VERSION:=3.0.5
 PKG_RELEASE:=1
 
 PKG_SOURCE:=corosync-qdevice-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://github.com/corosync/corosync-qdevice/archive/refs/tags/v$(PKG_VERSION)/
-PKG_HASH:=skip
+PKG_HASH:=154b648495b4ebfd8d79bf64c1b8f73f39e4cde3c237e6fe7b152293f6f1d34b
 PKG_BUILD_DIR:=$(BUILD_DIR)/corosync-qdevice-$(PKG_VERSION)
 
 PKG_FIXUP:=autoreconf
@@ -48,7 +48,7 @@ define Package/corosync-nss-tools
   SECTION:=net
   CATEGORY:=Network
   TITLE:=Corosync NSS tools
-  DEPENDS:=+libnss +openssl-util
+  DEPENDS:=+libnss
 endef
 
 define Package/corosync-qnetd/install
@@ -57,6 +57,13 @@ define Package/corosync-qnetd/install
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/corosync-qnetd-tool $(1)/usr/sbin/
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/qnetd.init $(1)/etc/init.d/corosync-qnetd
+	$(INSTALL_DIR) $(1)/etc/default
+	$(INSTALL_CONF) ./files/corosync-qnetd.default $(1)/etc/default/corosync-qnetd
+endef
+
+define Package/corosync-qnetd/conffiles
+/etc/default/corosync-qnetd
+/etc/corosync/qnetd/
 endef
 
 define Package/corosync-nss-tools/install

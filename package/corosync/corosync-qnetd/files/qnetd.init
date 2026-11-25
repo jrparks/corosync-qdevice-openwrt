@@ -7,8 +7,13 @@ USE_PROCD=1
 PROG=/usr/sbin/corosync-qnetd
 
 start_service() {
+    COROSYNC_QNETD_OPTIONS=""
+    [ -f /etc/default/corosync-qnetd ] && . /etc/default/corosync-qnetd
+    eval "set -- $COROSYNC_QNETD_OPTIONS"
+
     procd_open_instance
-    procd_set_param command "$PROG" -f
+    procd_set_param command "$PROG" -f "$@"
+    procd_set_param file /etc/default/corosync-qnetd
     procd_set_param respawn 3600 5 5
     procd_set_param stdout 1
     procd_set_param stderr 1

@@ -1,0 +1,17 @@
+# Configuration for the corosync-qnetd init script and corosync-qnetd-certutil.
+
+# COROSYNC_QNETD_OPTIONS specifies options passed to the corosync-qnetd command
+# (default is no options). See "man corosync-qnetd" for the available options.
+# Shell quoting is honoured, e.g. to serve several server certificates after
+# adding a CA with corosync-qnetd-certutil -I -C "QNet PQC CA" -S "QNetd PQC Cert":
+#   COROSYNC_QNETD_OPTIONS='-S "cert_nickname=QNetd PQC Cert,cert_nickname=QNetd Cert"'
+COROSYNC_QNETD_OPTIONS=""
+
+# Key size used when generating new key pairs (certutil -g).
+#COROSYNC_QNETD_CERTUTIL_KEY_SIZE=""
+
+# Key type used when generating new key pairs (certutil -k), e.g. rsa, ec, mldsa.
+#COROSYNC_QNETD_CERTUTIL_KEY_TYPE=""
+
+# Curve name or ML-DSA parameter set used when generating new key pairs (certutil -q).
+#COROSYNC_QNETD_CERTUTIL_PARAMSET=""

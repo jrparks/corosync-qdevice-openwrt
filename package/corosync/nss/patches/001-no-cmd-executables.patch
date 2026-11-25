@@ -1,8 +1,8 @@
 --- a/nss/cmd/manifest.mn
 +++ b/nss/cmd/manifest.mn
-@@ -111,3 +111,6 @@
- DONT_BULD = jar \
-  perror \
+@@ -106,3 +106,6 @@
+ #
+ DONT_BULD = perror \
  $(NULL)
 +# Cross-compile: build only the essential tools needed for corosync-qnetd
 +SOFTOKEN_SRCDIRS =
